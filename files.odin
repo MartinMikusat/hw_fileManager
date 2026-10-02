@@ -70,6 +70,8 @@ entry_kind :: proc(name: string, is_dir: bool) -> Entry_Kind {
 }
 
 read_entries :: proc(directory: string, allocator := context.allocator) -> ([]Entry, bool) {
+	// ponytail: full synchronous read; a huge directory blocks the UI thread during
+	// selection — make this async over display-link frames if that hurts.
 	handle, open_error := os.open(directory)
 	if open_error != nil {return nil, false}
 	defer os.close(handle)

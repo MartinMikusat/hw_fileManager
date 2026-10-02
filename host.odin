@@ -43,8 +43,6 @@ Host :: struct {
 	pointer:        ui.Vec2,
 	pointer_valid:  bool,
 	pointer_down:   bool,
-	hot_column:     int,
-	hot_row:        int,
 	hot_control:    int,
 	frames_pending: int,
 	initialized:    bool,
@@ -250,11 +248,7 @@ host_render :: proc() {
 		char_advance = measure_char_advance(&host.text),
 	}
 	view_layout(&host.tree, metrics)
-	view_draw(&host.tree, &host.list, &host.text, metrics, {
-		column = host.hot_column,
-		row = host.hot_row,
-		control = host.hot_control,
-	})
+	view_draw(&host.tree, &host.list, &host.text, metrics, {control = host.hot_control})
 	coretext.flush(&host.text)
 	if !metal.encode_to_drawable(
 		&host.renderer,
@@ -281,14 +275,11 @@ host_pointer_from_event :: proc(event: ^NS.Event) -> ui.Vec2 {
 }
 
 host_update_hover :: proc(point: ui.Vec2) {
+	if host.view_width < 1 || host.view_height < 1 {return}
 	metrics := View_Metrics{width = host.view_width, height = host.view_height}
 	control := view_control_at(point, metrics)
-	column := control < 0 ? tree_column_at(&host.tree, point.x) : -1
-	row := column >= 0 ? tree_row_at(&host.tree, column, point.y) : -1
-	if control == host.hot_control && column == host.hot_column && row == host.hot_row {return}
+	if control == host.hot_control {return}
 	host.hot_control = control
-	host.hot_column = column
-	host.hot_row = row
 	host_request_frames(1)
 }
 
@@ -331,6 +322,7 @@ host_surface_changed :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.No
 
 host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
+	if host.view_width < 1 || host.view_height < 1 {return}
 	point := host_pointer_from_event(event)
 	host.pointer = point
 	host.pointer_valid = true

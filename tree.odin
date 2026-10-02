@@ -105,9 +105,24 @@ tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 tree_refresh :: proc(tree: ^Tree) -> bool {
 	directories := make([]string, len(tree.columns), context.temp_allocator)
 	defer delete(directories, context.temp_allocator)
-	for column, index in tree.columns {directories[index] = column.dir}
+	selected := make([]string, len(tree.columns), context.temp_allocator)
+	defer delete(selected, context.temp_allocator)
+	for column, index in tree.columns {
+		directories[index] = column.dir
+		if column.selected >= 0 && column.selected < len(column.entries) {
+			// Clone: column_load destroys the entry strings it points into.
+			selected[index] = strings.clone(column.entries[column.selected].path, context.temp_allocator)
+		}
+	}
 	for directory, index in directories {
 		if !column_load(&tree.columns[index], directory, tree.allocator) {return false}
+		column := &tree.columns[index]
+		for entry, entry_index in column.entries {
+			if entry.path == selected[index] {
+				column.selected = entry_index
+				break
+			}
+		}
 	}
 	return true
 }

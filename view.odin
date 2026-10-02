@@ -11,8 +11,6 @@ View_Metrics :: struct {
 }
 
 Hot_State :: struct {
-	column:  int,
-	row:     int,
 	control: int,
 }
 
@@ -153,7 +151,7 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	draw.solid(list, {spine, metrics.height-child_y-width/2, x1-spine, width}, color)
 }
 
-view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, hot: Hot_State) {
+view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics) {
 	column := &tree.columns[index]
 	top := column.y
 	bottom := max(metrics.height-COLUMN_PAD, top+ROW_HEIGHT)
@@ -175,5 +173,5 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 view_draw :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, hot: Hot_State) {
 	view_draw_chrome(tree, list, text, metrics, hot)
 	for index in 0 ..< max(len(tree.columns)-1, 0) {view_draw_connector(tree, list, index, metrics)}
-	for index in 0 ..< len(tree.columns) {view_draw_column(tree, list, text, index, metrics, hot)}
+	for index in 0 ..< len(tree.columns) {view_draw_column(tree, list, text, index, metrics)}
 }

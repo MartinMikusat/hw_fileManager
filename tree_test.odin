@@ -55,6 +55,26 @@ tree_open_selects_the_starting_directory_in_its_parent :: proc(t: ^testing.T) {
 }
 
 @(test)
+tree_refresh_preserves_selections :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	start := strings.concatenate({TREE_FIXTURE_ROOT, "/alpha"}, context.temp_allocator)
+	testing.expect(t, tree_open(&tree, start))
+	testing.expect(t, tree_move(&tree, 1))
+	testing.expect(t, tree_select(&tree, 0, 1))
+
+	testing.expect(t, tree_refresh(&tree))
+	testing.expect_value(t, len(tree.columns), 2)
+	testing.expect_value(t, tree.active, 1)
+	testing.expect_value(t, tree.columns[0].entries[tree.columns[0].selected].name, "beta")
+	testing.expect_value(t, tree.columns[1].entries[tree.columns[1].selected].name, "two.txt")
+}
+
+@(test)
 tree_open_reports_a_missing_starting_directory :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()

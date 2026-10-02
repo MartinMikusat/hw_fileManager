@@ -113,7 +113,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		metrics.char_advance = measure_char_advance(&text)
 		draw.list_reset(&list)
 		view_layout(&tree, metrics)
-		view_draw(&tree, &list, &text, metrics, Hot_State{column = -1, row = -1, control = -1})
+		view_draw(&tree, &list, &text, metrics, Hot_State{control = -1})
 		coretext.flush(&text)
 		command_buffer := queue->commandBuffer()
 		if !metal.encode_to_drawable(
