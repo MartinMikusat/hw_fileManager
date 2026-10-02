@@ -10,7 +10,7 @@ sh "$ODIN_LIBS/hw_odin_ui_framework/scripts/build-metallib.sh" "$BUILD/ui.metall
 cd "$BUILD"
 python3 "$ROOT/scripts/test_host_control_lint.py" "$ROOT"
 hw-odin test "$ROOT" -vet \
-  -collection:delta_support="$ODIN_LIBS/hw_odin_delta_support" \
+  -collection:delta_support="$ODIN_LIBS/hw_odin_delta_support" -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
   -define:ODIN_TEST_THREADS=1 \
   -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true \

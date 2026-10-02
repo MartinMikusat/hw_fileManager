@@ -2,17 +2,7 @@ package file_manager
 
 import "core:fmt"
 import "core:os"
-import "core:strings"
-import devlog "delta_support:devlog"
-
-app_log_directory :: proc() -> string {
-	directory := strings.trim_space(os.get_env("DELTA_DEVLOG_DIR", context.temp_allocator))
-	if directory != "" {return directory}
-	return fmt.tprintf(
-		"%s/Library/Application Support/hw_fileManager/devlog/app",
-		os.get_env("HOME", context.temp_allocator),
-	)
-}
+import devlog "devlog:."
 
 app_exit :: proc(status: int) {
 	devlog.global_destroy()
@@ -22,7 +12,7 @@ app_exit :: proc(status: int) {
 main :: proc() {
 	config := devlog.DEFAULT_CONFIG
 	config.profile = devlog.profile_from_env()
-	if devlog.global_start(app_log_directory(), config) {
+	if devlog.global_start(devlog.default_directory("hw_fileManager", "app", context.temp_allocator), config) {
 		context.assertion_failure_proc = devlog.fatal_hook()
 	} else {
 		fmt.eprintln("[hw_fileManager] could not initialize the operation journal")

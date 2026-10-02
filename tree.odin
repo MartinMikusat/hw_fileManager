@@ -3,7 +3,7 @@ package file_manager
 import "core:mem"
 import "core:path/filepath"
 import "core:strings"
-import devlog "delta_support:devlog"
+import devlog "devlog:."
 
 Column :: struct {
 	dir:      string,

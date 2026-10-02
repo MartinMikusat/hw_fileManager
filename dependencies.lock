@@ -5,7 +5,13 @@
       "name": "hw_odin_delta_support",
       "path": "../odin_libraries/hw_odin_delta_support",
       "url": "https://github.com/MartinMikusat/hw_odin_delta_support.git",
-      "revision": "e1022b2b27e6598454ce07e41dd0b283ef9327a7"
+      "revision": "d0ca3b7ef1135842a628630e661c691f352d9a45"
+    },
+    {
+      "name": "hw_odin_devlog",
+      "path": "../odin_libraries/hw_odin_devlog",
+      "url": "https://github.com/MartinMikusat/hw_odin_devlog.git",
+      "revision": "713dedf617f5f1641c595c6f31cc08cbda9f2d1b"
     },
     {
       "name": "hw_odin_ui_framework",
