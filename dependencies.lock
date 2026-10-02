@@ -5,7 +5,7 @@
       "name": "hw_odin_delta_support",
       "path": "../odin_libraries/hw_odin_delta_support",
       "url": "https://github.com/MartinMikusat/hw_odin_delta_support.git",
-      "revision": "d0ca3b7ef1135842a628630e661c691f352d9a45"
+      "revision": "b3c45f22eec2fdfddf4fecbd9e9b6b5a075c41c1"
     },
     {
       "name": "hw_odin_devlog",
