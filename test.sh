@@ -2,6 +2,7 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ODIN_LIBS=$(CDPATH= cd -- "$ROOT/../odin_libraries" && pwd)
+python3 "$ODIN_LIBS/hw_odin_devlog/scripts/lint_devlog.py" "$ROOT"
 BUILD="$ROOT/build"
 mkdir -p "$BUILD"
 python3 "$ROOT/scripts/check_dependencies.py" debug
