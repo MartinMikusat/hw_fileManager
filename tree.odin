@@ -46,14 +46,17 @@ column_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
 }
 
 column_load :: proc(column: ^Column, directory: string, allocator: mem.Allocator) -> bool {
+	site := devlog.Site{feature = "files", operation = "read_directory"}
+	devlog.started(devlog.global(), site, {file_id = filepath.base(directory)})
 	entries, ok := read_entries(directory, allocator)
 	if !ok {
-		devlog.failed(devlog.global(), {feature = "files", operation = "open"}, {
+		devlog.failed(devlog.global(), site, {
 			reason = "directory could not be read",
 			detail = filepath.base(directory),
 		})
 		return false
 	}
+	devlog.succeeded(devlog.global(), site, {file_id = filepath.base(directory)}, {rows = i64(len(entries))})
 	column_destroy(column, allocator)
 	column.dir = strings.clone(directory, allocator)
 	column.entries = entries
@@ -92,7 +95,7 @@ tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 			return tree_select(tree, 0, index)
 		}
 	}
-	devlog.failed(devlog.global(), {feature = "files", operation = "open"}, {
+	devlog.failed(devlog.global(), {feature = "files", operation = "open_starting_directory"}, {
 		reason = "starting directory was not found",
 		detail = name,
 	})

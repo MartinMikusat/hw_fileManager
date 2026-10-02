@@ -5,7 +5,6 @@
   "enable_references": true,
   "enable_snippets": true,
   "collections": [
-    { "name": "delta_support", "path": "/Users/martin/projects/odin_libraries/hw_odin_delta_support" },
     { "name": "devlog", "path": "/Users/martin/projects/odin_libraries/hw_odin_devlog" },
     { "name": "ui_framework", "path": "/Users/martin/projects/odin_libraries/hw_odin_ui_framework" }
   ],

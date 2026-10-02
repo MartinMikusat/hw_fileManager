@@ -65,7 +65,7 @@ fingerprint() {
   find \
     "$PROJECT_DIR" \
     "$ODIN_LIBS/native" \
-    "$ODIN_LIBS/hw_odin_delta_support" \
+    "$ODIN_LIBS/hw_odin_devlog" \
     "$ODIN_LIBS/hw_odin_ui_framework" \
     "$ODIN_LIBS/hw_odin_ui_components" \
     "$ODIN_LIBS/hw_odin_ui_flash" \
@@ -153,6 +153,16 @@ launch_app() {
 
 archive_crash() {
   exit_status=$1
+  # The dev log library contract: a wrapper records why the app died, because the
+  # app itself could not. One fatal line, same shape as the assertion hook writes.
+  python3 - "${HW_DEVLOG_DIR:-$ROOT/.dev-logs/app}" "$exit_status" <<'PY'
+import json, pathlib, sys, time
+directory = pathlib.Path(sys.argv[1]); directory.mkdir(parents=True, exist_ok=True)
+with (directory/'fatal.jsonl').open('a') as output:
+    output.write(json.dumps(dict(timestampMs=int(time.time()*1000), kind='wrapper_exit',
+        severity='critical', outcome='failed', feature='app', operation='wrapper_exit',
+        reason='process exited non-zero', detail='exit_status='+sys.argv[2]))+'\n')
+PY
   timestamp=$(date '+%Y%m%d-%H%M%S')
   archive="$BUILD/crashes/$NAME-$MODE/$timestamp"
   mkdir -p "$archive"

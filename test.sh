@@ -11,9 +11,14 @@ sh "$ODIN_LIBS/hw_odin_ui_framework/scripts/build-metallib.sh" "$BUILD/ui.metall
 cd "$BUILD"
 python3 "$ROOT/scripts/test_host_control_lint.py" "$ROOT"
 hw-odin test "$ROOT" -vet \
-  -collection:delta_support="$ODIN_LIBS/hw_odin_delta_support" -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
+  -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
   -define:ODIN_TEST_THREADS=1 \
   -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true \
   -extra-linker-flags:"-framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics"
 echo "[hw_fileManager] tests passed"
+
+# Headless dev log integration: build the app and the journal reader, then run both.
+"$ROOT/build.sh" debug >/dev/null
+"$ODIN_LIBS/hw_odin_devlog/build.sh" -debug >/dev/null
+python3 "$ROOT/tests/devlog.py" "$ROOT/build/file_manager" "$ODIN_LIBS/hw_odin_devlog/build/hw-devlog"

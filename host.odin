@@ -193,7 +193,7 @@ host_initialize :: proc() -> bool {
 			host_failure("no readable starting directory", .Critical)
 			return false
 		}
-		devlog.recovered(devlog.global(), {feature = "files", operation = "open"})
+		devlog.recovered(devlog.global(), {feature = "files", operation = "open_starting_directory"})
 	}
 	host.initialized = true
 	host.window->makeKeyAndOrderFront(nil)
