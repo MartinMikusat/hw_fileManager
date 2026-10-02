@@ -9,7 +9,7 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 COLLECTIONS = ("hw_odin_ui_framework",)
-REQUIRED = {"odin_libraries", "hw_odin_ui_framework"}
+REQUIRED = {"hw_odin_ui_framework"}
 
 
 def git(path, *arguments):
@@ -54,9 +54,9 @@ def check(root, mode):
         expected = root.parent / "odin_libraries" / name if name in COLLECTIONS else root.parent / name
         if path != expected.resolve():
             raise ValueError(f"{name}: dependency path does not match the build collection")
-        if (name == "odin_libraries" or name in COLLECTIONS) and os.environ.get("ODIN_LIBS"):
+        if name in COLLECTIONS and os.environ.get("ODIN_LIBS"):
             libraries = Path(os.environ["ODIN_LIBS"]).resolve()
-            path = libraries / name if name in COLLECTIONS else libraries
+            path = libraries / name
         if Path(git(path, "rev-parse", "--show-toplevel")).resolve() != path:
             raise ValueError(f"{name}: dependency path is not its repository root")
         url = urlsplit(item["url"])

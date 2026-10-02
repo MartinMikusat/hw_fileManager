@@ -2,12 +2,6 @@
   "schema": 1,
   "repositories": [
     {
-      "name": "odin_libraries",
-      "path": "../odin_libraries",
-      "url": "https://github.com/MartinMikusat/odin_libraries.git",
-      "revision": "acf192a177784188b5d6e2fc15a6d1018d61b1ac"
-    },
-    {
       "name": "hw_odin_ui_framework",
       "path": "../odin_libraries/hw_odin_ui_framework",
       "url": "https://github.com/MartinMikusat/hw_odin_ui_framework.git",
