@@ -40,9 +40,6 @@ Host :: struct {
 	tree:           Tree,
 	view_width:     f32,
 	view_height:    f32,
-	pointer:        ui.Vec2,
-	pointer_valid:  bool,
-	pointer_down:   bool,
 	hot_control:    int,
 	frames_pending: int,
 	initialized:    bool,
@@ -104,7 +101,6 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if view_class == nil {return delegate, nil, false}
 	if !host_add_method(view_class, "acceptsFirstResponder", rawptr(host_accepts_first), "B@:") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "mouseUp:", rawptr(host_mouse_up), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll), "v@:@") {return delegate, view_class, false}
@@ -324,9 +320,6 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	if host.view_width < 1 || host.view_height < 1 {return}
 	point := host_pointer_from_event(event)
-	host.pointer = point
-	host.pointer_valid = true
-	host.pointer_down = true
 	metrics := View_Metrics{width = host.view_width, height = host.view_height}
 	if control := view_control_at(point, metrics); control >= 0 {
 		host_apply_control(control)
@@ -349,21 +342,14 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	host_request_frames(2)
 }
 
-host_mouse_up :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
-	context = runtime.default_context()
-	host.pointer_down = false
-}
-
 host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	host.pointer = host_pointer_from_event(event)
-	host_update_hover(host.pointer)
+	host_update_hover(host_pointer_from_event(event))
 }
 
 host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	host.pointer = host_pointer_from_event(event)
-	host_update_hover(host.pointer)
+	host_update_hover(host_pointer_from_event(event))
 }
 
 host_scroll :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {

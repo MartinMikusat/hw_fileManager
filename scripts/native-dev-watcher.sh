@@ -14,6 +14,7 @@ MODE=$5
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ODIN_LIBS=$(CDPATH= cd -- "$ROOT/../odin_libraries" && pwd)
 BUILD="$ROOT/build"
+DEVLOG_READER="$ODIN_LIBS/hw_odin_devlog/build/hw-devlog"
 
 case "$MODE" in
   debug|trace|asan) ;;
@@ -114,11 +115,11 @@ app_is_frontmost() {
   [ -n "$front_asn" ] || return 1
   front_info=$(lsappinfo info -only pid "$front_asn" 2>/dev/null || true)
   front_pid=$(printf '%s\n' "$front_info" | sed -n 's/.*"pid"=\([0-9][0-9]*\).*/\1/p')
-  [ -n "$front_pid" ] && [ "$front_pid" = "$APP_PID" ]
+  [ -n "$front_pid" ] && [ "$front_pid" = "$APP_REAL_PID" ]
 }
 
 activate_app_pid() {
-  case "$APP_PID" in ''|*[!0-9]*) return 1 ;; esac
+  case "$APP_REAL_PID" in ''|*[!0-9]*) return 1 ;; esac
   osascript \
     -e 'on run arguments' \
     -e 'set application_pid to item 1 of arguments as integer' \
@@ -132,37 +133,54 @@ launch_app() {
   timestamp=$(date '+%Y%m%d-%H%M%S')
   APP_LOG="$LOG_DIR/$timestamp.log"
 
+  # The app always runs through hw-devlog run, which records a wrapper_exit
+  # fatal line when the app dies without recording one itself.
+  if [ ! -x "$DEVLOG_READER" ]; then
+    "$ODIN_LIBS/hw_odin_devlog/build.sh" >/dev/null
+  fi
+  if [ ! -x "$DEVLOG_READER" ]; then
+    printf '[%s] hw-devlog is unavailable; cannot start the app\n' "$NAME" >&2
+    exit 2
+  fi
+
   if [ "$MODE" = "asan" ]; then
     asan_runtime=$("$ROOT/scripts/asan-runtime.sh")
     env \
       DYLD_INSERT_LIBRARIES="$asan_runtime" \
       MTL_DEBUG_LAYER=1 \
       HW_NATIVE_BACKGROUND_LAUNCH=1 \
+      "$DEVLOG_READER" --dir "${HW_DEVLOG_DIR:-$ROOT/.dev-logs/app}" run -- \
       "$EXECUTABLE" >>"$APP_LOG" 2>&1 &
   else
     env \
       MTL_DEBUG_LAYER=1 \
       HW_NATIVE_BACKGROUND_LAUNCH=1 \
+      "$DEVLOG_READER" --dir "${HW_DEVLOG_DIR:-$ROOT/.dev-logs/app}" run -- \
       "$EXECUTABLE" >>"$APP_LOG" 2>&1 &
   fi
   APP_PID=$!
-  printf '%s\n' "$APP_PID" > "$APP_PID_FILE"
-  RSS_OVER_LIMIT_COUNT=0
-  printf '[%s] launched pid %s (%s)\n' "$NAME" "$APP_PID" "$MODE"
+  resolve_app_pid
+  printf '[%s] launched pid %s (%s)\n' "$NAME" "${APP_REAL_PID:-unknown}" "$MODE"
+}
+
+resolve_app_pid() {
+  APP_REAL_PID=""
+  attempts=0
+  while [ "$attempts" -lt 40 ]; do
+    app_pid=$(process_ids_for_executable | head -n 1)
+    if [ -n "$app_pid" ]; then
+      APP_REAL_PID=$app_pid
+      printf '%s\n' "$APP_REAL_PID" > "$APP_PID_FILE"
+      return 0
+    fi
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  return 1
 }
 
 archive_crash() {
   exit_status=$1
-  # The dev log library contract: a wrapper records why the app died, because the
-  # app itself could not. One fatal line, same shape as the assertion hook writes.
-  python3 - "${HW_DEVLOG_DIR:-$ROOT/.dev-logs/app}" "$exit_status" <<'PY'
-import json, pathlib, sys, time
-directory = pathlib.Path(sys.argv[1]); directory.mkdir(parents=True, exist_ok=True)
-with (directory/'fatal.jsonl').open('a') as output:
-    output.write(json.dumps(dict(timestampMs=int(time.time()*1000), kind='wrapper_exit',
-        severity='critical', outcome='failed', feature='app', operation='wrapper_exit',
-        reason='process exited non-zero', detail='exit_status='+sys.argv[2]))+'\n')
-PY
   timestamp=$(date '+%Y%m%d-%H%M%S')
   archive="$BUILD/crashes/$NAME-$MODE/$timestamp"
   mkdir -p "$archive"
@@ -190,7 +208,7 @@ capture_memory_diagnostics() {
 }
 
 check_memory_limit() {
-  rss_kb=$(ps -o rss= -p "$APP_PID" 2>/dev/null | tr -d ' ')
+  rss_kb=$(ps -o rss= -p "${APP_REAL_PID:-$APP_PID}" 2>/dev/null | tr -d ' ')
   case "$rss_kb" in ''|*[!0-9]*) return ;; esac
   rss_limit_kb=$((RSS_LIMIT_MB * 1024))
   if [ "$rss_kb" -gt "$rss_limit_kb" ]; then
