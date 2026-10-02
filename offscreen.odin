@@ -4,8 +4,10 @@ import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
+import devlog "delta_support:devlog"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 import metal "ui_framework:metal"
@@ -59,6 +61,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	}
 	if len(directory) == 0 {directory = home_directory()}
 
+	started := time.tick_now()
 	pool := NS.scoped_autoreleasepool()
 	_ = pool
 	device := MTL.CreateSystemDefaultDevice()
@@ -141,6 +144,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		0,
 	)
 	if !write_ppm(path, pixels, pixel_width, pixel_height) {return false}
+	devlog.sample_since(devlog.global(), {feature = "app", operation = "render_offscreen"}, started)
 	fmt.printf("wrote %s (%dx%d, scale %.1f)\n", path, width, height, scale)
 	return true
 }

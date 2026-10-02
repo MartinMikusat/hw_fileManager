@@ -2,6 +2,12 @@
   "schema": 1,
   "repositories": [
     {
+      "name": "hw_odin_delta_support",
+      "path": "../odin_libraries/hw_odin_delta_support",
+      "url": "https://github.com/MartinMikusat/hw_odin_delta_support.git",
+      "revision": "e1022b2b27e6598454ce07e41dd0b283ef9327a7"
+    },
+    {
       "name": "hw_odin_ui_framework",
       "path": "../odin_libraries/hw_odin_ui_framework",
       "url": "https://github.com/MartinMikusat/hw_odin_ui_framework.git",

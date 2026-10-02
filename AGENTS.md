@@ -15,6 +15,10 @@ kind. Source lives at the repository root (`package file_manager`).
   directly. There is no hw_clay: `view.odin` computes every column, row, and connector
   position itself. Do not add a layout library.
 - Reference screenshots for the visual target are in `references/`.
+- The operation journal (`delta_support:devlog`) is the dev error and debug path.
+  `dev.sh` writes `.dev-logs/app/devlog.jsonl`; read it first when a run misbehaves.
+  Record failures once at their root cause, and never put credentials, payloads or
+  full paths in a record.
 - A feature is a file-name prefix in this one package. Keep files small and cohesive.
 - Interface verification is the operator's. Use
   `file_manager --offscreen <path.ppm> [--path=DIR]` for headless structural checks

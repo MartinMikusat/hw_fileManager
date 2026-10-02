@@ -7,6 +7,7 @@ import "core:os"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import QC "vendor:darwin/QuartzCore"
+import devlog "delta_support:devlog"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 import macos "ui_framework:macos"
@@ -82,6 +83,13 @@ host_add_method :: proc(class: NS.Class, name: cstring, imp: rawptr, types: cstr
 	return bool(NS.class_addMethod(class, NS.sel_registerName(name), auto_cast imp, types))
 }
 
+host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
+	devlog.failed(devlog.global(), {feature = "presentation", operation = "window_host"}, {
+		reason = reason,
+		severity = severity,
+	})
+}
+
 host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
 	delegate_class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "FileManagerDelegate", 0)
 	if delegate_class == nil {return nil, nil, false}
@@ -112,11 +120,13 @@ host_initialize :: proc() -> bool {
 	draw.list_init(&host.list, pixel_ratio = 2)
 	if !register_system_monospaced(&host.text) {
 		fmt.eprintln("[hw_fileManager] could not register the system monospaced font")
+		host_failure("system monospaced font could not be registered", .Critical)
 		return false
 	}
 	delegate, view_class, ok := host_register_classes()
 	if !ok {
 		fmt.eprintln("[hw_fileManager] could not register the Cocoa classes")
+		host_failure("Cocoa classes could not be registered", .Critical)
 		return false
 	}
 	host.delegate = delegate
@@ -126,7 +136,10 @@ host_initialize :: proc() -> bool {
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
 	host.window = NS.Window.alloc()->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
-	if host.window == nil {return false}
+	if host.window == nil {
+		host_failure("window could not be created", .Critical)
+		return false
+	}
 	host.window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
 	host.window->setAcceptsMouseMovedEvents(true)
 	host.window->setDelegate((^NS.WindowDelegate)(delegate))
@@ -137,7 +150,10 @@ host_initialize :: proc() -> bool {
 	host.window->setContentView(host.view)
 
 	host.device = MTL.CreateSystemDefaultDevice()
-	if host.device == nil {return false}
+	if host.device == nil {
+		host_failure("Metal device is unavailable", .Critical)
+		return false
+	}
 	host.queue = host.device->newCommandQueue()
 	host.layer = QC.MetalLayer.layer()
 	host.layer->setDevice(host.device)
@@ -153,6 +169,7 @@ host_initialize :: proc() -> bool {
 		metallib_data = UI_METALLIB,
 	) {
 		fmt.eprintln("[hw_fileManager] Metal renderer initialization failed")
+		host_failure("Metal renderer initialization failed", .Critical)
 		return false
 	}
 	if !macos.display_link_start(
@@ -162,6 +179,7 @@ host_initialize :: proc() -> bool {
 		"fileManagerFrame:",
 	) {
 		fmt.eprintln("[hw_fileManager] the macOS 14 display link API is required")
+		host_failure("the macOS 14 display link API is unavailable", .Critical)
 		return false
 	}
 	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
@@ -169,9 +187,13 @@ host_initialize :: proc() -> bool {
 	tree_init(&host.tree)
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) == 0 {start = home_directory()}
-	if !tree_open(&host.tree, start) && !tree_open(&host.tree, "/") {
-		fmt.eprintln("[hw_fileManager] no readable starting directory")
-		return false
+	if !tree_open(&host.tree, start) {
+		if !tree_open(&host.tree, "/") {
+			fmt.eprintln("[hw_fileManager] no readable starting directory")
+			host_failure("no readable starting directory", .Critical)
+			return false
+		}
+		devlog.recovered(devlog.global(), {feature = "files", operation = "open"})
 	}
 	host.initialized = true
 	host.window->makeKeyAndOrderFront(nil)
@@ -234,7 +256,7 @@ host_render :: proc() {
 		control = host.hot_control,
 	})
 	coretext.flush(&host.text)
-	_ = metal.encode_to_drawable(
+	if !metal.encode_to_drawable(
 		&host.renderer,
 		rawptr(command_buffer),
 		rawptr(texture),
@@ -242,7 +264,13 @@ host_render :: proc() {
 		{width, height},
 		scale,
 		COLOR_BACKGROUND,
-	)
+	) {
+		devlog.failed(devlog.global(), {feature = "presentation", operation = "frame"}, {
+			reason = "Metal rendering failed",
+			severity = .Critical,
+		})
+		return
+	}
 	command_buffer->presentDrawable((^MTL.Drawable)(drawable))
 	command_buffer->commit()
 }
@@ -410,6 +438,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 host_run :: proc() -> bool {
 	if !host_initialize() {return false}
 	defer host_shutdown()
+	devlog.started(devlog.global(), {feature = "app", operation = "presentation"})
 	host.app->run()
+	devlog.stopped(devlog.global(), {feature = "app", operation = "presentation"})
 	return true
 }

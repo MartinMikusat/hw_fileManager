@@ -1,6 +1,7 @@
 {
   "package": ".",
   "collections": {
+    "delta_support": "../odin_libraries/hw_odin_delta_support",
     "ui_framework": "../odin_libraries/hw_odin_ui_framework"
   },
   "copy": [

@@ -36,6 +36,7 @@ esac
 
 # shellcheck disable=SC2086
 hw-odin build "$ROOT" -vet \
+  -collection:delta_support="$ODIN_LIBS/hw_odin_delta_support" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
   -extra-linker-flags:"$ASAN_LINKER_FLAGS -framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics" \
   $ODIN_FLAGS -out:"$BUILD/file_manager"

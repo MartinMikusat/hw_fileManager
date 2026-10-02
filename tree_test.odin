@@ -55,6 +55,18 @@ tree_open_selects_the_starting_directory_in_its_parent :: proc(t: ^testing.T) {
 }
 
 @(test)
+tree_open_reports_a_missing_starting_directory :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	missing := strings.concatenate({TREE_FIXTURE_ROOT, "/absent"}, context.temp_allocator)
+	testing.expect(t, !tree_open(&tree, missing))
+}
+
+@(test)
 tree_navigation_cascades_and_collapses :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()

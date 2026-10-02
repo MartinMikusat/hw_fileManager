@@ -3,6 +3,7 @@ package file_manager
 import "core:mem"
 import "core:path/filepath"
 import "core:strings"
+import devlog "delta_support:devlog"
 
 Column :: struct {
 	dir:      string,
@@ -46,7 +47,13 @@ column_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
 
 column_load :: proc(column: ^Column, directory: string, allocator: mem.Allocator) -> bool {
 	entries, ok := read_entries(directory, allocator)
-	if !ok {return false}
+	if !ok {
+		devlog.failed(devlog.global(), {feature = "files", operation = "open"}, {
+			reason = "directory could not be read",
+			detail = filepath.base(directory),
+		})
+		return false
+	}
 	column_destroy(column, allocator)
 	column.dir = strings.clone(directory, allocator)
 	column.entries = entries
@@ -82,12 +89,14 @@ tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 	name := filepath.base(directory)
 	for entry, index in root.entries {
 		if entry.is_dir && entry.name == name {
-			_ = tree_select(tree, 0, index)
-			return true
+			return tree_select(tree, 0, index)
 		}
 	}
-	tree_ensure_visible(tree, 0)
-	return true
+	devlog.failed(devlog.global(), {feature = "files", operation = "open"}, {
+		reason = "starting directory was not found",
+		detail = name,
+	})
+	return false
 }
 
 tree_refresh :: proc(tree: ^Tree) -> bool {

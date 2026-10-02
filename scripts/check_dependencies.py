@@ -8,8 +8,8 @@ import subprocess
 import sys
 from urllib.parse import unquote, urlsplit
 
-COLLECTIONS = ("hw_odin_ui_framework",)
-REQUIRED = {"hw_odin_ui_framework"}
+COLLECTIONS = ("hw_odin_delta_support", "hw_odin_ui_framework")
+REQUIRED = {"hw_odin_delta_support", "hw_odin_ui_framework"}
 
 
 def git(path, *arguments):

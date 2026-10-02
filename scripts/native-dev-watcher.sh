@@ -65,6 +65,7 @@ fingerprint() {
   find \
     "$PROJECT_DIR" \
     "$ODIN_LIBS/native" \
+    "$ODIN_LIBS/hw_odin_delta_support" \
     "$ODIN_LIBS/hw_odin_ui_framework" \
     "$ODIN_LIBS/hw_odin_ui_components" \
     "$ODIN_LIBS/hw_odin_ui_flash" \
