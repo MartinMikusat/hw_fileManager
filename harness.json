@@ -1,0 +1,14 @@
+{
+  "package": ".",
+  "collections": {
+    "ui_framework": "../odin_libraries/hw_odin_ui_framework"
+  },
+  "copy": [
+    "build/ui.metallib"
+  ],
+  "foundation": [
+    "theme.odin",
+    "files.odin",
+    "tree.odin"
+  ]
+}

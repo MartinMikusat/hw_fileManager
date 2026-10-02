@@ -1,0 +1,415 @@
+package file_manager
+
+import "base:intrinsics"
+import "base:runtime"
+import "core:fmt"
+import "core:os"
+import NS "core:sys/darwin/Foundation"
+import MTL "vendor:darwin/Metal"
+import QC "vendor:darwin/QuartzCore"
+import coretext "ui_framework:coretext"
+import draw "ui_framework:draw"
+import macos "ui_framework:macos"
+import metal "ui_framework:metal"
+import ui "ui_framework:core"
+
+WINDOW_WIDTH :: NS.Float(1100)
+WINDOW_HEIGHT :: NS.Float(720)
+WINDOW_MIN_WIDTH :: NS.Float(520)
+WINDOW_MIN_HEIGHT :: NS.Float(320)
+WINDOW_STYLE :: NS.WindowStyleMask{.Closable, .Miniaturizable, .Resizable}
+MINIMIZE_STYLE :: NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable, .Resizable}
+
+CONTROL_CLOSE :: 0
+CONTROL_MINIMIZE :: 1
+CONTROL_ZOOM :: 2
+
+Host :: struct {
+	app:            ^NS.Application,
+	delegate:       ^NS.Object,
+	window:         ^NS.Window,
+	view:           ^NS.View,
+	device:         ^MTL.Device,
+	queue:          ^MTL.CommandQueue,
+	layer:          ^QC.MetalLayer,
+	display_link:   macos.Display_Link,
+	text:           coretext.Context,
+	renderer:       metal.Renderer,
+	list:           draw.List,
+	tree:           Tree,
+	view_width:     f32,
+	view_height:    f32,
+	pointer:        ui.Vec2,
+	pointer_valid:  bool,
+	pointer_down:   bool,
+	hot_column:     int,
+	hot_row:        int,
+	hot_control:    int,
+	frames_pending: int,
+	initialized:    bool,
+}
+
+host: Host
+
+register_system_monospaced :: proc(text: ^coretext.Context) -> bool {
+	font := intrinsics.objc_send(
+		^NS.Object,
+		cast(^NS.Object)intrinsics.objc_find_class("NSFont"),
+		"monospacedSystemFontOfSize:weight:",
+		f64(FONT_SIZE),
+		f64(0),
+	)
+	if font == nil {return false}
+	name := intrinsics.objc_send(^NS.String, font, "fontName")
+	if name == nil {return false}
+	coretext.register_font(text, FONT_MONO, NS.String_odinString(name))
+	return true
+}
+
+measure_char_advance :: proc(text: ^coretext.Context) -> f32 {
+	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", FONT_SIZE, 0, 0, false)
+	if run == nil {return FONT_SIZE*0.6}
+	return run.metrics.width/10
+}
+
+home_directory :: proc() -> string {
+	value := os.get_env("HOME", context.temp_allocator)
+	if len(value) > 0 {return value}
+	return "/"
+}
+
+host_add_method :: proc(class: NS.Class, name: cstring, imp: rawptr, types: cstring) -> bool {
+	return bool(NS.class_addMethod(class, NS.sel_registerName(name), auto_cast imp, types))
+}
+
+host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
+	delegate_class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "FileManagerDelegate", 0)
+	if delegate_class == nil {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerFrame:", rawptr(host_on_frame), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
+	NS.objc_registerClassPair(delegate_class)
+	delegate_id := NS.class_createInstance(delegate_class, 0)
+	delegate = NS.init((^NS.Object)(delegate_id))
+
+	view_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "FileManagerView", 0)
+	if view_class == nil {return delegate, nil, false}
+	if !host_add_method(view_class, "acceptsFirstResponder", rawptr(host_accepts_first), "B@:") {return delegate, view_class, false}
+	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "mouseUp:", rawptr(host_mouse_up), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate, view_class, false}
+	NS.objc_registerClassPair(view_class)
+	return delegate, view_class, true
+}
+
+host_initialize :: proc() -> bool {
+	coretext.context_init(&host.text)
+	draw.list_init(&host.list, pixel_ratio = 2)
+	if !register_system_monospaced(&host.text) {
+		fmt.eprintln("[hw_fileManager] could not register the system monospaced font")
+		return false
+	}
+	delegate, view_class, ok := host_register_classes()
+	if !ok {
+		fmt.eprintln("[hw_fileManager] could not register the Cocoa classes")
+		return false
+	}
+	host.delegate = delegate
+	host.app = NS.Application.sharedApplication()
+	host.app->setActivationPolicy(.Regular)
+	host.app->setDelegate((^NS.ApplicationDelegate)(delegate))
+
+	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
+	host.window = NS.Window.alloc()->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
+	if host.window == nil {return false}
+	host.window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
+	host.window->setAcceptsMouseMovedEvents(true)
+	host.window->setDelegate((^NS.WindowDelegate)(delegate))
+	host.window->center()
+
+	host.view = (^NS.View)(NS.class_createInstance(view_class, 0))
+	host.view = host.view->initWithFrame({{0, 0}, frame.size})
+	host.window->setContentView(host.view)
+
+	host.device = MTL.CreateSystemDefaultDevice()
+	if host.device == nil {return false}
+	host.queue = host.device->newCommandQueue()
+	host.layer = QC.MetalLayer.layer()
+	host.layer->setDevice(host.device)
+	host.layer->setPixelFormat(.BGRA8Unorm)
+	host.layer->setFramebufferOnly(true)
+	host.view->setWantsLayer(true)
+	host.view->setLayer((^NS.Layer)(host.layer))
+
+	if !metal.renderer_init(
+		&host.renderer,
+		rawptr(host.device),
+		pixel_format = uint(MTL.PixelFormat.BGRA8Unorm),
+		metallib_data = UI_METALLIB,
+	) {
+		fmt.eprintln("[hw_fileManager] Metal renderer initialization failed")
+		return false
+	}
+	if !macos.display_link_start(
+		&host.display_link,
+		rawptr(host.view),
+		rawptr(host.delegate),
+		"fileManagerFrame:",
+	) {
+		fmt.eprintln("[hw_fileManager] the macOS 14 display link API is required")
+		return false
+	}
+	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
+
+	tree_init(&host.tree)
+	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
+	if len(start) == 0 {start = home_directory()}
+	if !tree_open(&host.tree, start) && !tree_open(&host.tree, "/") {
+		fmt.eprintln("[hw_fileManager] no readable starting directory")
+		return false
+	}
+	host.initialized = true
+	host.window->makeKeyAndOrderFront(nil)
+	host.app->activateIgnoringOtherApps(true)
+	host_request_frames(3)
+	return true
+}
+
+host_shutdown :: proc() {
+	if !host.initialized {return}
+	macos.display_link_stop(&host.display_link)
+	tree_destroy(&host.tree)
+	metal.renderer_destroy(&host.renderer)
+	draw.list_destroy(&host.list)
+	coretext.context_destroy(&host.text)
+	if host.view != nil {NS.release(host.view)}
+	if host.window != nil {NS.release(host.window)}
+	if host.delegate != nil {NS.release(host.delegate)}
+	host = {}
+}
+
+host_request_frames :: proc(count: int) {
+	if !host.initialized {return}
+	host.frames_pending = max(host.frames_pending, count)
+	if host.display_link.paused {macos.display_link_set_paused(&host.display_link, false)}
+}
+
+host_render :: proc() {
+	if host.window == nil || host.view == nil || host.layer == nil {return}
+	pool := NS.scoped_autoreleasepool()
+	_ = pool
+	bounds := host.view->bounds()
+	width := f32(bounds.size.width)
+	height := f32(bounds.size.height)
+	if width < 1 || height < 1 {return}
+	host.view_width = width
+	host.view_height = height
+	scale := f32(host.window->backingScaleFactor())
+	if scale < 1 {scale = 1}
+	host.layer->setContentsScale(NS.Float(scale))
+	host.layer->setDrawableSize({NS.Float(width)*NS.Float(scale), NS.Float(height)*NS.Float(scale)})
+
+	drawable := host.layer->nextDrawable()
+	if drawable == nil {return}
+	texture := drawable->texture()
+	command_buffer := host.queue->commandBuffer()
+
+	metal.begin_texture_frame(&host.renderer)
+	coretext.begin_frame(&host.text, scale, metal.atlas_io(&host.renderer))
+	draw.list_reset(&host.list)
+	metrics := View_Metrics{
+		width = width,
+		height = height,
+		char_advance = measure_char_advance(&host.text),
+	}
+	view_layout(&host.tree, metrics)
+	view_draw(&host.tree, &host.list, &host.text, metrics, {
+		column = host.hot_column,
+		row = host.hot_row,
+		control = host.hot_control,
+	})
+	coretext.flush(&host.text)
+	_ = metal.encode_to_drawable(
+		&host.renderer,
+		rawptr(command_buffer),
+		rawptr(texture),
+		&host.list,
+		{width, height},
+		scale,
+		COLOR_BACKGROUND,
+	)
+	command_buffer->presentDrawable((^MTL.Drawable)(drawable))
+	command_buffer->commit()
+}
+
+host_pointer_from_event :: proc(event: ^NS.Event) -> ui.Vec2 {
+	point := host.view->convertPointFromView(event->locationInWindow(), nil)
+	return {f32(point.x), host.view_height-f32(point.y)}
+}
+
+host_update_hover :: proc(point: ui.Vec2) {
+	metrics := View_Metrics{width = host.view_width, height = host.view_height}
+	control := view_control_at(point, metrics)
+	column := control < 0 ? tree_column_at(&host.tree, point.x) : -1
+	row := column >= 0 ? tree_row_at(&host.tree, column, point.y) : -1
+	if control == host.hot_control && column == host.hot_column && row == host.hot_row {return}
+	host.hot_control = control
+	host.hot_column = column
+	host.hot_row = row
+	host_request_frames(1)
+}
+
+host_miniaturize :: proc() {
+	host.window->setStyleMask(MINIMIZE_STYLE)
+	intrinsics.objc_send(nil, host.window, "miniaturize:", NS.id(nil))
+	host.window->setStyleMask(WINDOW_STYLE)
+}
+
+host_apply_control :: proc(index: int) {
+	switch index {
+	case CONTROL_CLOSE:
+		host.window->close()
+	case CONTROL_MINIMIZE:
+		host_miniaturize()
+	case CONTROL_ZOOM:
+		intrinsics.objc_send(nil, host.window, "zoom:", NS.id(nil))
+	}
+}
+
+host_accepts_first :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
+
+host_should_terminate :: proc "c" (self: NS.id, cmd: NS.SEL, app: ^NS.Application) -> bool {return true}
+
+host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
+	context = runtime.default_context()
+	if host.frames_pending <= 0 {
+		macos.display_link_set_paused(&host.display_link, true)
+		return
+	}
+	host_render()
+	host.frames_pending -= 1
+	if host.frames_pending <= 0 {macos.display_link_set_paused(&host.display_link, true)}
+}
+
+host_surface_changed :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	host_request_frames(2)
+}
+
+host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	point := host_pointer_from_event(event)
+	host.pointer = point
+	host.pointer_valid = true
+	host.pointer_down = true
+	metrics := View_Metrics{width = host.view_width, height = host.view_height}
+	if control := view_control_at(point, metrics); control >= 0 {
+		host_apply_control(control)
+		return
+	}
+	if point.y < CHROME_HEIGHT {
+		if event->clickCount() >= 2 {
+			host_apply_control(CONTROL_ZOOM)
+			return
+		}
+		intrinsics.objc_send(nil, host.window, "performWindowDragWithEvent:", event)
+		return
+	}
+	column := tree_column_at(&host.tree, point.x)
+	row := column >= 0 ? tree_row_at(&host.tree, column, point.y) : -1
+	if column >= 0 && row >= 0 {
+		tree_focus_column(&host.tree, column)
+		_ = tree_select(&host.tree, column, row)
+	}
+	host_request_frames(2)
+}
+
+host_mouse_up :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	host.pointer_down = false
+}
+
+host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	host.pointer = host_pointer_from_event(event)
+	host_update_hover(host.pointer)
+}
+
+host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	host.pointer = host_pointer_from_event(event)
+	host_update_hover(host.pointer)
+}
+
+host_scroll :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	point := host_pointer_from_event(event)
+	delta_x := f32(event->scrollingDeltaX())
+	delta_y := f32(event->scrollingDeltaY())
+	pan := delta_x
+	if .Shift in event->modifierFlags() && pan == 0 {pan = delta_y}
+	if pan != 0 {
+		host.tree.pan_x += pan
+	} else if delta_y != 0 {
+		column := tree_column_at(&host.tree, point.x)
+		if column >= 0 {tree_scroll_column(&host.tree, column, -delta_y)}
+	}
+	host_request_frames(1)
+}
+
+host_select_index :: proc(index: int) -> bool {
+	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
+	count := len(host.tree.columns[host.tree.active].entries)
+	if count == 0 {return false}
+	return tree_select(&host.tree, host.tree.active, clamp(index, 0, count-1))
+}
+
+host_select_end :: proc() -> bool {
+	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
+	return host_select_index(len(host.tree.columns[host.tree.active].entries)-1)
+}
+
+host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	command := .Command in event->modifierFlags()
+	key := uint(event->keyCode())
+	switch {
+	case command && key == 13:
+		host.window->close()
+		return
+	case command && key == 12:
+		host.app->terminate(nil)
+		return
+	case command && key == 15:
+		_ = tree_refresh(&host.tree)
+	case key == 126:
+		_ = tree_move(&host.tree, -1)
+	case key == 125:
+		_ = tree_move(&host.tree, 1)
+	case key == 123:
+		_ = tree_collapse(&host.tree)
+	case key == 124, key == 36:
+		_ = tree_expand(&host.tree)
+	case key == 115:
+		_ = host_select_index(0)
+	case key == 119:
+		_ = host_select_end()
+	case key == 116:
+		_ = tree_move(&host.tree, -10)
+	case key == 121:
+		_ = tree_move(&host.tree, 10)
+	}
+	host_request_frames(2)
+}
+
+host_run :: proc() -> bool {
+	if !host_initialize() {return false}
+	defer host_shutdown()
+	host.app->run()
+	return true
+}

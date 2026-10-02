@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+  "enable_document_symbols": true,
+  "enable_hover": true,
+  "enable_references": true,
+  "enable_snippets": true,
+  "collections": [
+    { "name": "ui_framework", "path": "/Users/martin/projects/odin_libraries/hw_odin_ui_framework" }
+  ],
+  "profiles": [
+    {
+      "name": "macos",
+      "os": "darwin",
+      "arch": "arm64",
+      "checker_path": ["."]
+    }
+  ]
+}
