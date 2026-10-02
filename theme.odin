@@ -5,8 +5,10 @@ import draw "ui_framework:draw"
 
 FONT_MONO :: ui.Font_Handle(1)
 
-FONT_SIZE :: f32(14)
-ROW_HEIGHT :: f32(22)
+DEFAULT_FONT_SIZE :: 14
+FONT_SIZE_MIN :: 12
+FONT_SIZE_MAX :: 24
+ROW_HEIGHT_RATIO :: f32(22.0/14.0)
 COLUMN_GAP :: f32(44)
 COLUMN_PAD :: f32(10)
 CHROME_HEIGHT :: f32(28)
@@ -35,6 +37,18 @@ COLOR_CONTROL_EDGE  :: draw.Color{0.0, 0.0, 0.0, 0.35}
 
 CONNECTOR_WIDTH :: f32(1.5)
 MIN_COLUMN_WIDTH :: f32(140)
+SETTINGS_PANEL_WIDTH :: f32(380)
+
+COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.55}
+COLOR_PANEL         :: draw.Color{0.106, 0.106, 0.122, 1.0}
+COLOR_PANEL_EDGE    :: draw.Color{0.196, 0.196, 0.224, 1.0}
+COLOR_ROW           :: draw.Color{0.145, 0.145, 0.169, 1.0}
+COLOR_ROW_EDGE      :: draw.Color{0.243, 0.243, 0.278, 1.0}
+COLOR_ROW_HOT       :: draw.Color{0.216, 0.243, 0.310, 1.0}
+
+row_height_for :: proc(font_size: f32) -> f32 {
+	return font_size*ROW_HEIGHT_RATIO
+}
 
 entry_color :: proc(kind: Entry_Kind, hidden: bool) -> draw.Color {
 	if hidden {return COLOR_DIM}

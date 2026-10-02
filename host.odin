@@ -41,6 +41,11 @@ Host :: struct {
 	view_width:     f32,
 	view_height:    f32,
 	hot_control:    int,
+	char_advance:   f32,
+	hot_settings_button: bool,
+	hot_settings_hot:    Settings_Hot,
+	settings:       Settings,
+	settings_open:  bool,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -52,7 +57,7 @@ register_system_monospaced :: proc(text: ^coretext.Context) -> bool {
 		^NS.Object,
 		cast(^NS.Object)intrinsics.objc_find_class("NSFont"),
 		"monospacedSystemFontOfSize:weight:",
-		f64(FONT_SIZE),
+		f64(DEFAULT_FONT_SIZE),
 		f64(0),
 	)
 	if font == nil {return false}
@@ -62,9 +67,9 @@ register_system_monospaced :: proc(text: ^coretext.Context) -> bool {
 	return true
 }
 
-measure_char_advance :: proc(text: ^coretext.Context) -> f32 {
-	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", FONT_SIZE, 0, 0, false)
-	if run == nil {return FONT_SIZE*0.6}
+measure_char_advance :: proc(text: ^coretext.Context, font_size: f32) -> f32 {
+	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", font_size, 0, 0, false)
+	if run == nil {return font_size*0.6}
 	return run.metrics.width/10
 }
 
@@ -179,6 +184,9 @@ host_initialize :: proc() -> bool {
 	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
 
 	tree_init(&host.tree)
+	host.settings = settings_defaults()
+	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
+	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) == 0 {start = home_directory()}
 	if !tree_open(&host.tree, start) {
@@ -241,10 +249,15 @@ host_render :: proc() {
 	metrics := View_Metrics{
 		width = width,
 		height = height,
-		char_advance = measure_char_advance(&host.text),
+		char_advance = measure_char_advance(&host.text, host.tree.font_size),
 	}
+	host.char_advance = metrics.char_advance
 	view_layout(&host.tree, metrics)
-	view_draw(&host.tree, &host.list, &host.text, metrics, {control = host.hot_control})
+	view_draw(&host.tree, &host.list, &host.text, metrics, host.settings, host.settings_open, {
+		control = host.hot_control,
+		settings_button = host.hot_settings_button,
+		settings_hot = host.hot_settings_hot,
+	})
 	coretext.flush(&host.text)
 	if !metal.encode_to_drawable(
 		&host.renderer,
@@ -272,11 +285,34 @@ host_pointer_from_event :: proc(event: ^NS.Event) -> ui.Vec2 {
 
 host_update_hover :: proc(point: ui.Vec2) {
 	if host.view_width < 1 || host.view_height < 1 {return}
-	metrics := View_Metrics{width = host.view_width, height = host.view_height}
-	control := view_control_at(point, metrics)
-	if control == host.hot_control {return}
+	metrics := View_Metrics{
+		width = host.view_width,
+		height = host.view_height,
+		char_advance = host.char_advance,
+	}
+	control := -1
+	settings_button := false
+	settings_hot := Settings_Hot.None
+	if host.settings_open {
+		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics), point)
+	} else {
+		control = view_control_at(point, metrics)
+		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
+	}
+	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot {return}
 	host.hot_control = control
+	host.hot_settings_button = settings_button
+	host.hot_settings_hot = settings_hot
 	host_request_frames(1)
+}
+
+host_settings_adjust :: proc(delta: int) {
+	next := settings_font_size_clamped(host.settings.font_size+delta)
+	if next == host.settings.font_size {return}
+	host.settings.font_size = next
+	_ = tree_set_font_size(&host.tree, f32(next))
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
 }
 
 host_miniaturize :: proc() {
@@ -320,9 +356,29 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	if host.view_width < 1 || host.view_height < 1 {return}
 	point := host_pointer_from_event(event)
-	metrics := View_Metrics{width = host.view_width, height = host.view_height}
+	metrics := View_Metrics{
+		width = host.view_width,
+		height = host.view_height,
+		char_advance = host.char_advance,
+	}
+	if host.settings_open {
+		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
+		if !inside {
+			host.settings_open = false
+		} else if hot == .Minus {
+			host_settings_adjust(-1)
+		} else if hot == .Plus {
+			host_settings_adjust(1)
+		}
+		return
+	}
 	if control := view_control_at(point, metrics); control >= 0 {
 		host_apply_control(control)
+		return
+	}
+	if view_settings_control_at(point, metrics) {
+		host.settings_open = true
+		host_request_frames(2)
 		return
 	}
 	if point.y < CHROME_HEIGHT {
@@ -384,12 +440,28 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	command := .Command in event->modifierFlags()
 	key := uint(event->keyCode())
+	if host.settings_open {
+		switch {
+		case command && key == 13:
+			host.window->close()
+		case command && key == 12:
+			host.app->terminate(nil)
+		case key == 53, command && key == 43:
+			host.settings_open = false
+			host_request_frames(1)
+		}
+		return
+	}
 	switch {
 	case command && key == 13:
 		host.window->close()
 		return
 	case command && key == 12:
 		host.app->terminate(nil)
+		return
+	case command && key == 43:
+		host.settings_open = true
+		host_request_frames(1)
 		return
 	case command && key == 15:
 		_ = tree_refresh(&host.tree)

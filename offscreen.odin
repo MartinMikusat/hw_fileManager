@@ -39,6 +39,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	height := 720
 	scale := f32(2)
 	directory := ""
+	font_size := 0
+	settings_open := false
 	for argument in arguments[1:] {
 		switch {
 		case strings.has_prefix(argument, "--width="):
@@ -55,6 +57,12 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			scale = parsed
 		case strings.has_prefix(argument, "--path="):
 			directory = strings.trim_prefix(argument, "--path=")
+		case strings.has_prefix(argument, "--font-size="):
+			parsed, ok := strconv.parse_int(strings.trim_prefix(argument, "--font-size="))
+			if !ok || parsed <= 0 {return false}
+			font_size = parsed
+		case argument == "--settings":
+			settings_open = true
 		case:
 			return false
 		}
@@ -68,6 +76,9 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if device == nil {return false}
 	queue := device->newCommandQueue()
 	if queue == nil {return false}
+
+	settings := settings_defaults()
+	_ = settings_load(settings_path(context.temp_allocator), &settings)
 
 	text: coretext.Context
 	coretext.context_init(&text)
@@ -90,6 +101,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	tree: Tree
 	tree_init(&tree)
 	defer tree_destroy(&tree)
+	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
+	_ = tree_set_font_size(&tree, f32(settings.font_size))
 	if !tree_open(&tree, directory) {return false}
 
 	pixel_width := int(f32(width)*scale)
@@ -110,10 +123,10 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	for _ in 0 ..< 3 {
 		metal.begin_texture_frame(&renderer)
 		coretext.begin_frame(&text, scale, metal.atlas_io(&renderer))
-		metrics.char_advance = measure_char_advance(&text)
+		metrics.char_advance = measure_char_advance(&text, tree.font_size)
 		draw.list_reset(&list)
 		view_layout(&tree, metrics)
-		view_draw(&tree, &list, &text, metrics, Hot_State{control = -1})
+		view_draw(&tree, &list, &text, metrics, settings, settings_open, Hot_State{control = -1})
 		coretext.flush(&text)
 		command_buffer := queue->commandBuffer()
 		if !metal.encode_to_drawable(
