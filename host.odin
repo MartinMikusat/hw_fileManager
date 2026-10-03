@@ -553,10 +553,12 @@ host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 		macos.display_link_set_paused(&host.display_link, true)
 		return
 	}
+	// The frame is consumed before drawing, so a frame requested while drawing (a preview or
+	// listing still waiting) survives it.
+	host.frames_pending -= 1
 	host_render()
 	host_remember_place()
 	free_all(context.temp_allocator)
-	host.frames_pending -= 1
 	if host.frames_pending <= 0 {macos.display_link_set_paused(&host.display_link, true)}
 }
 
