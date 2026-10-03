@@ -35,6 +35,7 @@ cd_lookup :: proc(zoxide, query: string, allocator: mem.Allocator) -> (string, b
 
 // cd_run resolves the typed query and reopens the cascade at the match.
 cd_run :: proc(host: ^Host) {
+	input_history_push(host)
 	query := input_text(host)
 	if len(query) > 0 {
 		if path, ok := cd_lookup(host.zoxide, query, context.allocator); ok {

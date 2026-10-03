@@ -27,12 +27,13 @@ Hot_State :: struct {
 }
 
 View_State :: struct {
-	settings:      Settings,
-	settings_open: bool,
-	hot:           Hot_State,
-	input_mode:    Input_Mode,
-	input:         string,
-	now:           time.Time,
+	settings:         Settings,
+	settings_open:    bool,
+	hot:              Hot_State,
+	input_mode:       Input_Mode,
+	input:            string,
+	search_committed: bool,
+	now:              time.Time,
 }
 
 // Iconoir regular paths, in the icon's 24x24 coordinate space.
@@ -334,8 +335,14 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false)
 			return
 		}
-		current, total := search_progress(tree, state.input)
-		view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
+		if state.search_committed {
+			current, total := search_progress(tree, state.input)
+			view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
+			return
+		}
+		total := 0
+		if tree.active >= 0 && tree.active < len(tree.columns) {total = search_match_count(&tree.columns[tree.active], state.input)}
+		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true)
 	case .None:
 		view_bar_text(text, list, view_breadcrumb(tree), tree, metrics, COLOR_DIM, true)
 	}

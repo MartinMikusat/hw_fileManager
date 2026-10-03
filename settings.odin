@@ -8,11 +8,20 @@ import devlog "devlog:."
 
 Settings :: struct {
 	font_size: int,
+	window:    Window_Frame,
+}
+
+Window_Frame :: struct {
+	x, y, w, h: f32,
 }
 
 // Fields present in the file replace the defaults; absent fields keep them.
 Settings_Document :: struct {
-	font_size: int `json:"font_size"`,
+	font_size:     int `json:"font_size"`,
+	window_x:      f32 `json:"window_x"`,
+	window_y:      f32 `json:"window_y"`,
+	window_width:  f32 `json:"window_width"`,
+	window_height: f32 `json:"window_height"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -55,6 +64,9 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		return false
 	}
 	if document.font_size != 0 {settings.font_size = settings_font_size_clamped(document.font_size)}
+	if document.window_width > 0 && document.window_height > 0 {
+		settings.window = {document.window_x, document.window_y, document.window_width, document.window_height}
+	}
 	devlog.succeeded(devlog.global(), site)
 	return true
 }
@@ -62,7 +74,13 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 settings_save :: proc(path: string, settings: Settings) -> bool {
 	site := devlog.Site{feature = "settings", operation = "save"}
 	devlog.started(devlog.global(), site)
-	document := Settings_Document{font_size = settings_font_size_clamped(settings.font_size)}
+	document := Settings_Document{
+		font_size = settings_font_size_clamped(settings.font_size),
+		window_x = settings.window.x,
+		window_y = settings.window.y,
+		window_width = settings.window.w,
+		window_height = settings.window.h,
+	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {
 		devlog.failed(devlog.global(), site, {reason = "settings could not be encoded"})

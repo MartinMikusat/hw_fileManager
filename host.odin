@@ -53,6 +53,12 @@ Host :: struct {
 	input_mode:     Input_Mode,
 	search_index:   int,
 	search_committed: bool,
+	history:        [HISTORY_MAX][INPUT_MAX]u8,
+	history_len:    [HISTORY_MAX]int,
+	history_count:  int,
+	history_index:  int,
+	draft:          [INPUT_MAX]u8,
+	draft_len:      int,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -115,6 +121,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if delegate_class == nil {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerFrame:", rawptr(host_on_frame), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
@@ -152,7 +159,15 @@ host_initialize :: proc() -> bool {
 	host.app->setActivationPolicy(.Regular)
 	host.app->setDelegate((^NS.ApplicationDelegate)(delegate))
 
+	host.settings = settings_defaults()
+	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
+
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
+	restored := false
+	if saved := host.settings.window; NS.Float(saved.w) >= WINDOW_MIN_WIDTH && NS.Float(saved.h) >= WINDOW_MIN_HEIGHT && saved.w < 10000 && saved.h < 10000 {
+		frame = {{NS.Float(saved.x), NS.Float(saved.y)}, {NS.Float(saved.w), NS.Float(saved.h)}}
+		restored = true
+	}
 	window_class := host_window_class()
 	if window_class == nil {
 		host_failure("window class could not be registered", .Critical)
@@ -167,7 +182,7 @@ host_initialize :: proc() -> bool {
 	host.window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
 	host.window->setAcceptsMouseMovedEvents(true)
 	host.window->setDelegate((^NS.WindowDelegate)(delegate))
-	host.window->center()
+	if !restored {host.window->center()}
 
 	host.view = (^NS.View)(NS.class_createInstance(view_class, 0))
 	host.view = host.view->initWithFrame({{0, 0}, frame.size})
@@ -209,8 +224,6 @@ host_initialize :: proc() -> bool {
 	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
 
 	tree_init(&host.tree)
-	host.settings = settings_defaults()
-	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
@@ -291,6 +304,7 @@ host_render :: proc() {
 		},
 		input_mode = host.input_mode,
 		input = input_text(&host),
+		search_committed = host.search_committed,
 		now = time.now(),
 	})
 	coretext.flush(&host.text)
@@ -342,11 +356,24 @@ host_update_hover :: proc(point: ui.Vec2) {
 	host_request_frames(1)
 }
 
+host_capture_window_frame :: proc() {
+	if host.window == nil {return}
+	frame := host.window->frame()
+	host.settings.window = {f32(frame.origin.x), f32(frame.origin.y), f32(frame.size.width), f32(frame.size.height)}
+}
+
+host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+}
+
 host_settings_adjust :: proc(delta: int) {
 	next := settings_font_size_clamped(host.settings.font_size+delta)
 	if next == host.settings.font_size {return}
 	host.settings.font_size = next
 	_ = tree_set_font_size(&host.tree, f32(next))
+	host_capture_window_frame()
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 	host_request_frames(2)
 }
@@ -493,7 +520,6 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 				case:
 					if host.input_mode == .None {host.input_mode = .Cd}
 					input_append(&host, text[0])
-					if host.input_mode == .Search {search_retarget(&host)}
 				}
 			}
 		}
@@ -514,14 +540,14 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 51:
 		if host.input_len > 0 {
 			host.input_len -= 1
-			if host.input_mode == .Search {search_retarget(&host)}
+			if host.input_mode == .Search && host.search_committed {search_refresh(&host)}
 		}
 	case key == 53:
 		input_reset(&host)
 	case key == 126:
-		_ = tree_move(&host.tree, -1)
+		if host.input_mode == .Cd {input_history_move(&host, 1)} else {_ = tree_move(&host.tree, -1)}
 	case key == 125:
-		_ = tree_move(&host.tree, 1)
+		if host.input_mode == .Cd {input_history_move(&host, -1)} else {_ = tree_move(&host.tree, 1)}
 	case key == 123:
 		_ = tree_collapse(&host.tree)
 	case key == 124:
@@ -530,7 +556,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		switch host.input_mode {
 		case .Cd:     cd_run(&host)
 		case .Search:
-			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true}
+			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; search_commit(&host)}
 		case .None:   _ = tree_expand(&host.tree)
 		}
 	case key == 45:

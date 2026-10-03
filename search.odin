@@ -63,7 +63,9 @@ search_refresh :: proc(host: ^Host) {
 	}
 }
 
-search_retarget :: proc(host: ^Host) {
+// search_commit jumps to the first match once the query is confirmed; while the
+// query is being typed only the matches highlight, as in vim without incsearch.
+search_commit :: proc(host: ^Host) {
 	host.search_index = 0
 	search_refresh(host)
 }
