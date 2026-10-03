@@ -145,3 +145,25 @@ tree_move_continues_into_the_neighbouring_folder :: proc(t: ^testing.T) {
 	entry, ok = tree_selected_entry(&tree)
 	testing.expect(t, ok && entry.name == "two.txt")
 }
+
+@(test)
+trail_aligns_the_nearest_folder_end_with_its_row :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT))
+	testing.expect(t, tree_select_name(&tree, tree.active, "top.txt"))
+	metrics := View_Metrics{width = 1000, height = 700, char_advance = 8, row_height = tree.row_height, bar_height = 2*tree.row_height}
+	for !view_layout(&tree, metrics) {}
+
+	column := &tree.columns[tree.active]
+	testing.expect_value(t, len(column.trail), 2)
+	nearest := column.trail[0]
+	testing.expect_value(t, column.entries[nearest.row].name, "beta")
+	last_row_y := nearest.y+f32(len(nearest.entries)-1)*tree.row_height
+	testing.expect_value(t, last_row_y, column.y+f32(nearest.row)*tree.row_height)
+	testing.expect(t, column.trail[1].y < nearest.y)
+}

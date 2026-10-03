@@ -138,6 +138,7 @@ view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 			cursor += f32(len(block.entries))*tree.row_height
 		}
 		x += column.width+COLUMN_GAP
+		_ = trail_place(tree, column, gap)
 	}
 }
 
@@ -323,6 +324,33 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
 
+view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, blocks: []Block, x, top, bottom: f32, metrics: View_Metrics, state: View_State) {
+	for block in blocks {
+		for entry, row in block.entries {
+			row_top := block.y+f32(row)*tree.row_height
+			if row_top+tree.row_height < top || row_top > bottom {continue}
+			max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
+			view_draw_text(text, list, entry.name, x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, entry_color(entry.modified, state.now, entry.hidden), metrics.height, max_width)
+		}
+	}
+}
+
+// view_draw_trail draws the folders above a selected file to the right of its column.
+view_draw_trail :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
+	column := &tree.columns[index]
+	if len(column.trail) == 0 || column.selected < 0 || column.entries[column.selected].is_dir {return}
+	longest := 0
+	for block in column.trail {
+		for entry in block.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
+	}
+	x := column.x+column.width+COLUMN_GAP
+	top := CHROME_HEIGHT
+	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
+	draw.push_clip(list, {x-COLUMN_PAD, metrics.height-bottom, f32(longest)*metrics.char_advance+2*COLUMN_PAD, bottom-top})
+	defer draw.pop_clip(list)
+	view_draw_blocks(tree, list, text, column.trail[:], x, top, bottom, metrics, state)
+}
+
 view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
 	column := &tree.columns[index]
 	top := CHROME_HEIGHT
@@ -352,16 +380,8 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
-	for blocks in ([2][dynamic]Block{column.above, column.below}) {
-		for block in blocks {
-			for entry, row in block.entries {
-				row_top := block.y+f32(row)*tree.row_height
-				if row_top+tree.row_height < top || row_top > bottom {continue}
-				max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
-				view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, entry_color(entry.modified, state.now, entry.hidden), metrics.height, max_width)
-			}
-		}
-	}
+	view_draw_blocks(tree, list, text, column.above[:], column.x, top, bottom, metrics, state)
+	view_draw_blocks(tree, list, text, column.below[:], column.x, top, bottom, metrics, state)
 	if state.edit.active && state.edit.column == index {
 		view_draw_inline_edit(text, list, tree, metrics, column, state.edit)
 	}
@@ -500,7 +520,10 @@ view_draw :: proc(
 ) {
 	view_draw_chrome(tree, list, text, metrics, state.hot)
 	for index in 0 ..< max(len(tree.columns)-1, 0) {view_draw_connector(tree, list, index, metrics)}
-	for index in 0 ..< len(tree.columns) {view_draw_column(tree, list, text, index, metrics, state)}
+	for index in 0 ..< len(tree.columns) {
+		view_draw_column(tree, list, text, index, metrics, state)
+		view_draw_trail(tree, list, text, index, metrics, state)
+	}
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot)
 }

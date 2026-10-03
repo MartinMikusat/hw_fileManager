@@ -18,6 +18,10 @@ Column :: struct {
 	above_next:    int,
 	below_next:    int,
 	context_ready: bool,
+	// Contents of the folders above a selected file, drawn to the column's right.
+	trail:         [dynamic]Block,
+	trail_next:    int,
+	trail_ready:   bool,
 }
 
 Tree :: struct {

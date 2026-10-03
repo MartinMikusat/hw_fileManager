@@ -8,6 +8,8 @@ import devlog "devlog:."
 Block :: struct {
 	entries: []Entry,
 	y:       f32,
+	// Row of the folder in its parent column.
+	row:     int,
 }
 
 CONTEXT_READS_PER_PASS :: 32
@@ -18,6 +20,8 @@ block_destroy :: proc(block: ^Block, allocator: mem.Allocator) {
 }
 
 column_context_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
+	for &block in column.trail {block_destroy(&block, allocator)}
+	delete(column.trail)
 	for &block in column.above {block_destroy(&block, allocator)}
 	for &block in column.below {block_destroy(&block, allocator)}
 	delete(column.above)
@@ -65,11 +69,13 @@ tree_load_context :: proc(tree: ^Tree, view_top, view_bottom, gap: f32) -> bool 
 				complete = false
 				break
 			}
-			entry := parent.entries[column.above_next]
+			row := column.above_next
+			entry := parent.entries[row]
 			column.above_next -= 1
 			if !entry.is_dir {continue}
 			reads += 1
 			if block, ok := context_block_read(entry, tree.allocator); ok {
+				block.row = row
 				append(&column.above, block)
 				top -= gap+f32(len(block.entries))*tree.row_height
 			}
@@ -79,15 +85,65 @@ tree_load_context :: proc(tree: ^Tree, view_top, view_bottom, gap: f32) -> bool 
 				complete = false
 				break
 			}
-			entry := parent.entries[column.below_next]
+			row := column.below_next
+			entry := parent.entries[row]
 			column.below_next += 1
 			if !entry.is_dir {continue}
 			reads += 1
 			if block, ok := context_block_read(entry, tree.allocator); ok {
+				block.row = row
 				append(&column.below, block)
 				bottom += gap+f32(len(block.entries))*tree.row_height
 			}
 		}
 	}
+	if len(tree.columns) > 0 {
+		complete = tree_load_trail(tree, view_top, gap) && complete
+	}
 	return complete
+}
+
+// trail_place sets each trail block's y and returns the top of the last one: the
+// first block ends level with its folder's own row, the rest stack upward with a
+// gap.
+trail_place :: proc(tree: ^Tree, column: ^Column, gap: f32) -> f32 {
+	y := f32(0)
+	for &block, index in column.trail {
+		height := f32(len(block.entries))*tree.row_height
+		if index == 0 {
+			y = column.y+f32(block.row+1)*tree.row_height-height
+		} else {
+			y -= gap+height
+		}
+		block.y = y
+	}
+	return y
+}
+
+// tree_load_trail lists the folders above a selected file in the last column.
+// Folders sort before files, so every folder sits above it, and their contents
+// show to the column's right, nearest folder first.
+tree_load_trail :: proc(tree: ^Tree, view_top, gap: f32) -> bool {
+	column := &tree.columns[len(tree.columns)-1]
+	if column.selected < 0 || column.entries[column.selected].is_dir {return true}
+	if !column.trail_ready {
+		column.trail_ready = true
+		column.trail_next = len(column.entries)-1
+	}
+	column.y = view_column_top(tree, len(tree.columns)-1)+tree.pan_y
+	reads := 0
+	for column.trail_next >= 0 {
+		if len(column.trail) > 0 && trail_place(tree, column, gap) <= view_top {break}
+		if reads >= CONTEXT_READS_PER_PASS {return false}
+		row := column.trail_next
+		entry := column.entries[row]
+		column.trail_next -= 1
+		if !entry.is_dir {continue}
+		reads += 1
+		if block, ok := context_block_read(entry, tree.allocator); ok {
+			block.row = row
+			append(&column.trail, block)
+		}
+	}
+	return true
 }
