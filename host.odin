@@ -46,6 +46,9 @@ Host :: struct {
 	hot_settings_hot:    Settings_Hot,
 	settings:       Settings,
 	settings_open:  bool,
+	zoxide:         string,
+	typed:          [TYPED_MAX]u8,
+	typed_len:      int,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -121,7 +124,6 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate, view_class, false}
 	NS.objc_registerClassPair(view_class)
 	return delegate, view_class, true
@@ -206,6 +208,7 @@ host_initialize :: proc() -> bool {
 	host.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
+	host.zoxide = cd_zoxide()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) == 0 {start = home_directory()}
 	if !tree_open(&host.tree, start) {
@@ -431,17 +434,6 @@ host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	host_update_hover(host_pointer_from_event(event))
 }
 
-host_scroll :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
-	context = runtime.default_context()
-	point := host_pointer_from_event(event)
-	delta_y := f32(event->scrollingDeltaY())
-	if delta_y != 0 {
-		column := tree_column_at(&host.tree, point.x)
-		if column >= 0 {tree_scroll_column(&host.tree, column, -delta_y)}
-		host_request_frames(1)
-	}
-}
-
 host_select_index :: proc(index: int) -> bool {
 	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
 	count := len(host.tree.columns[host.tree.active].entries)
@@ -457,6 +449,7 @@ host_select_end :: proc() -> bool {
 host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	command := .Command in event->modifierFlags()
+	control := .Control in event->modifierFlags()
 	key := uint(event->keyCode())
 	if host.settings_open {
 		switch {
@@ -469,6 +462,13 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_request_frames(1)
 		}
 		return
+	}
+	if !command && !control {
+		if characters := event->characters(); characters != nil {
+			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
+				cd_typed_append(&host, text[0])
+			}
+		}
 	}
 	switch {
 	case command && key == 13:
@@ -483,14 +483,20 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	case command && key == 15:
 		_ = tree_refresh(&host.tree)
+	case key == 51:
+		if host.typed_len > 0 {host.typed_len -= 1}
+	case key == 53:
+		host.typed_len = 0
 	case key == 126:
 		_ = tree_move(&host.tree, -1)
 	case key == 125:
 		_ = tree_move(&host.tree, 1)
 	case key == 123:
 		_ = tree_collapse(&host.tree)
-	case key == 124, key == 36:
+	case key == 124:
 		_ = tree_expand(&host.tree)
+	case key == 36:
+		if host.typed_len > 0 {cd_run(&host)} else {_ = tree_expand(&host.tree)}
 	case key == 115:
 		_ = host_select_index(0)
 	case key == 119:

@@ -9,21 +9,19 @@ Column :: struct {
 	dir:      string,
 	entries:  []Entry,
 	selected: int,
-	scroll:   f32,
 	width:    f32,
 	x:        f32,
 	y:        f32,
 }
 
 Tree :: struct {
-	columns:         [dynamic]Column,
-	active:          int,
-	pan_x:           f32,
-	pan_y:           f32,
-	viewport_height: f32,
-	font_size:       f32,
-	row_height:      f32,
-	allocator:       mem.Allocator,
+	columns:    [dynamic]Column,
+	active:     int,
+	pan_x:      f32,
+	pan_y:      f32,
+	font_size:  f32,
+	row_height: f32,
+	allocator:  mem.Allocator,
 }
 
 tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
@@ -31,7 +29,6 @@ tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
 	tree.allocator = allocator
 	tree.columns = make([dynamic]Column, 0, 8, allocator)
 	tree.active = 0
-	tree.viewport_height = 0
 	tree.font_size = DEFAULT_FONT_SIZE
 	tree.row_height = row_height_for(DEFAULT_FONT_SIZE)
 }
@@ -42,7 +39,6 @@ tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
 	if size == tree.font_size {return false}
 	tree.font_size = size
 	tree.row_height = row_height_for(size)
-	for index in 0 ..< len(tree.columns) {tree_ensure_visible(tree, index)}
 	return true
 }
 
@@ -98,7 +94,6 @@ tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 		if !column_load(&root, directory, tree.allocator) {return false}
 		append(&tree.columns, root)
 		tree.active = 0
-		tree_ensure_visible(tree, 0)
 		return true
 	}
 	root: Column
@@ -155,27 +150,21 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) 
 	if !entry.is_dir {
 		tree_truncate(tree, column_index+1)
 		tree.active = column_index
-		tree_ensure_visible(tree, column_index)
 		return true
 	}
 	if column_index+1 < len(tree.columns) && tree.columns[column_index+1].dir == entry.path {
 		tree_truncate(tree, column_index+2)
 		tree.active = enter ? column_index+1 : column_index
-		tree_ensure_visible(tree, column_index)
-		tree_ensure_visible(tree, column_index+1)
 		return true
 	}
 	tree_truncate(tree, column_index+1)
 	child: Column
 	if !column_load(&child, entry.path, tree.allocator) {
 		tree.active = column_index
-		tree_ensure_visible(tree, column_index)
 		return false
 	}
 	append(&tree.columns, child)
 	tree.active = enter ? column_index+1 : column_index
-	tree_ensure_visible(tree, column_index)
-	tree_ensure_visible(tree, column_index+1)
 	return true
 }
 
@@ -195,7 +184,6 @@ tree_expand :: proc(tree: ^Tree) -> bool {
 	if !column.entries[column.selected].is_dir {return false}
 	if tree.active+1 < len(tree.columns) {
 		tree.active += 1
-		tree_ensure_visible(tree, tree.active)
 		return true
 	}
 	return tree_select(tree, tree.active, column.selected)
@@ -206,7 +194,6 @@ tree_collapse :: proc(tree: ^Tree) -> bool {
 	target := tree.active-1
 	tree_truncate(tree, tree.active)
 	tree.active = target
-	tree_ensure_visible(tree, tree.active)
 	return true
 }
 
@@ -228,39 +215,6 @@ tree_root_directory :: proc(tree: ^Tree) -> string {
 	return tree.columns[0].dir
 }
 
-tree_content_extent :: proc(tree: ^Tree) -> f32 {
-	if len(tree.columns) == 0 {return 0}
-	last := tree.columns[len(tree.columns)-1]
-	return last.x+last.width+COLUMN_PAD
-}
-
-tree_scroll_column :: proc(tree: ^Tree, column_index: int, delta: f32) {
-	if column_index < 0 || column_index >= len(tree.columns) {return}
-	column := &tree.columns[column_index]
-	visible := tree_column_visible_height(tree)
-	content := f32(len(column.entries))*tree.row_height
-	column.scroll = clamp(column.scroll+delta, 0, max(content-visible, 0))
-}
-
-tree_column_visible_height :: proc(tree: ^Tree) -> f32 {
-	top := CHROME_HEIGHT+COLUMN_PAD
-	bottom := max(tree.viewport_height-COLUMN_PAD, top+tree.row_height)
-	return bottom-top
-}
-
-tree_ensure_visible :: proc(tree: ^Tree, column_index: int) {
-	if column_index < 0 || column_index >= len(tree.columns) {return}
-	column := &tree.columns[column_index]
-	if column.selected < 0 {return}
-	visible := tree_column_visible_height(tree)
-	row_top := f32(column.selected)*tree.row_height
-	row_bottom := row_top+tree.row_height
-	if row_top-column.scroll < 0 {column.scroll = row_top}
-	if row_bottom-column.scroll > visible {column.scroll = row_bottom-visible}
-	content := f32(len(column.entries))*tree.row_height
-	column.scroll = clamp(column.scroll, 0, max(content-visible, 0))
-}
-
 tree_column_at :: proc(tree: ^Tree, x: f32) -> int {
 	for column, index in tree.columns {
 		if x >= column.x-COLUMN_PAD && x < column.x+column.width {return index}
@@ -271,7 +225,7 @@ tree_column_at :: proc(tree: ^Tree, x: f32) -> int {
 tree_row_at :: proc(tree: ^Tree, column_index: int, y: f32) -> int {
 	if column_index < 0 || column_index >= len(tree.columns) {return -1}
 	column := &tree.columns[column_index]
-	offset := y-column.y+column.scroll
+	offset := y-column.y
 	if offset < 0 {return -1}
 	index := int(offset/tree.row_height)
 	if index < 0 || index >= len(column.entries) {return -1}

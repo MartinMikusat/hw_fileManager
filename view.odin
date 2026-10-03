@@ -70,13 +70,23 @@ view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	}
 }
 
+// view_column_top is the pre-pan top of a column. Each column starts on the row
+// its parent has selected, so a folder's contents open in line with the folder.
+view_column_top :: proc(tree: ^Tree, index: int) -> f32 {
+	y := CHROME_HEIGHT+COLUMN_PAD
+	for parent_index in 0 ..< index {
+		parent := &tree.columns[parent_index]
+		if parent.selected >= 0 {y += f32(parent.selected)*tree.row_height}
+	}
+	return y
+}
+
 view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	x := COLUMN_PAD+tree.pan_x
-	y := CHROME_HEIGHT+COLUMN_PAD+tree.pan_y
 	for index in 0 ..< len(tree.columns) {
 		column := &tree.columns[index]
 		column.x = x
-		column.y = y
+		column.y = view_column_top(tree, index)+tree.pan_y
 		x += column.width+COLUMN_GAP
 	}
 }
@@ -91,12 +101,11 @@ view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
 	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
 	tree.pan_x = metrics.width/2-(left+column.width/2)
 	if column.selected < 0 {return}
-	row_center := CHROME_HEIGHT+COLUMN_PAD+f32(column.selected)*tree.row_height-column.scroll+tree.row_height/2
+	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
 	tree.pan_y = metrics.height/2-row_center
 }
 
 view_layout :: proc(tree: ^Tree, metrics: View_Metrics) {
-	tree.viewport_height = metrics.height
 	view_measure_columns(tree, metrics)
 	view_center_pan(tree, metrics)
 	view_place_columns(tree, metrics)
@@ -235,31 +244,27 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	view_draw_text(text, list, title, x, 0, CHROME_HEIGHT, tree.font_size, COLOR_DIM, metrics.height, available)
 }
 
+// The child's first entry opens on the parent's selected row, so the connector is
+// one horizontal line from the parent's right edge to the child.
 view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: View_Metrics) {
 	parent := &tree.columns[index]
 	child := &tree.columns[index+1]
 	if parent.selected < 0 {return}
-	parent_y := parent.y+f32(parent.selected)*tree.row_height-parent.scroll+tree.row_height/2
-	child_y := clamp(child.y-child.scroll, CHROME_HEIGHT+1, metrics.height-tree.row_height)+tree.row_height/2
-	x0 := parent.x+parent.width
-	x1 := child.x
-	spine := x0+(x1-x0)/2
+	row_y := parent.y+f32(parent.selected)*tree.row_height+tree.row_height/2
 	color := COLOR_CONNECTOR
 	if index+1 == tree.active {color = COLOR_CONNECTOR_HOT}
-	width := CONNECTOR_WIDTH
-	draw.solid(list, {x0, metrics.height-parent_y-width/2, spine-x0, width}, color)
-	draw.solid(list, {spine-width/2, metrics.height-max(parent_y, child_y), width, abs(parent_y-child_y)}, color)
-	draw.solid(list, {spine, metrics.height-child_y-width/2, x1-spine, width}, color)
+	x0 := parent.x+parent.width
+	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
 
 view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics) {
 	column := &tree.columns[index]
-	top := CHROME_HEIGHT+COLUMN_PAD
+	top := CHROME_HEIGHT
 	bottom := max(metrics.height-COLUMN_PAD, top+tree.row_height)
 	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width, bottom-top})
 	defer draw.pop_clip(list)
 	for entry, row in column.entries {
-		row_top := column.y+f32(row)*tree.row_height-column.scroll
+		row_top := column.y+f32(row)*tree.row_height
 		if row_top+tree.row_height < top || row_top > bottom {continue}
 		selected := row == column.selected
 		if selected {
