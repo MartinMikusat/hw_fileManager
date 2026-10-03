@@ -13,5 +13,5 @@ with tempfile.TemporaryDirectory() as directory:
             pixels = size * scale
             name = f"icon_{size}x{size}{'@2x' if scale == 2 else ''}.png"
             subprocess.run(["magick", "-background", "none", "-density", "384", str(assets / "app-icon.svg"),
-                            "-resize", f"{pixels}x{pixels}", str(iconset / name)], check=True)
+                            "-resize", f"{pixels}x{pixels}", "-depth", "8", str(iconset / name)], check=True)
     subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(assets / "AppIcon.icns")], check=True)
