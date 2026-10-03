@@ -108,6 +108,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	}
 	defer metal.renderer_destroy(&renderer)
 	register_mono_font(&text)
+	font_apply(&text, &font_catalog, settings.font_family, settings.font_weight)
 
 	tree: Tree
 	tree_init(&tree)

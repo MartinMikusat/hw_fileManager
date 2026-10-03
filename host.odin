@@ -195,6 +195,7 @@ host_initialize :: proc() -> bool {
 
 	host.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
+	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_weight)
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
 	restored := false
@@ -563,11 +564,50 @@ host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Noti
 host_settings_view :: proc() -> Settings {
 	view := host.settings
 	view.terminal = host_terminal()
+	if host.settings_open {font_catalog_scan(&font_catalog)}
+	view.font_weight = font_effective_style(&font_catalog, host.settings.font_family, host.settings.font_weight)
 	return view
 }
 
 host_terminal :: proc() -> string {
 	return terminal_effective(host.settings.terminal, host.terminals)
+}
+
+// host_settings_font_family switches the interface font, keeping the weight when
+// the new family has it.
+host_settings_font_family :: proc(family: string) {
+	delete(host.settings.font_family)
+	host.settings.font_family = strings.clone(family)
+	host_apply_font()
+}
+
+host_settings_font_weight :: proc(style: string) {
+	delete(host.settings.font_weight)
+	host.settings.font_weight = strings.clone(style)
+	host_apply_font()
+}
+
+host_apply_font :: proc() {
+	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_weight)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
+}
+
+// host_font_family_commit stores the typed family when it is an installed
+// monospaced one; otherwise the field stays open and the modal shows why.
+host_font_family_commit :: proc() {
+	name := strings.trim_space(host.input_value)
+	if len(name) == 0 {
+		host_settings_font_family("")
+	} else if family, ok := font_family_known(&font_catalog, name); ok {
+		host_settings_font_family(family)
+	} else {
+		notice_set(&host, "no such monospaced font")
+		return
+	}
+	input_reset(&host)
+	host.notice_len = 0
 }
 
 host_settings_syntax :: proc(direction: int) {
@@ -707,7 +747,8 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
-		if host.input_mode == .OpenWith && hot != .EditorCustom {
+		field_kept := (host.input_mode == .OpenWith && hot == .EditorCustom) || (host.input_mode == .FontFamily && hot == .FontCustom)
+		if (host.input_mode == .OpenWith || host.input_mode == .FontFamily) && !field_kept {
 			input_reset(&host)
 			host.notice_len = 0
 		}
@@ -728,6 +769,20 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_settings_editor(-1)
 		} else if hot == .EditorNext {
 			host_settings_editor(1)
+		} else if hot == .FontPrevious {
+			host_settings_font_family(font_family_step(&font_catalog, host.settings.font_family, -1))
+		} else if hot == .FontNext {
+			host_settings_font_family(font_family_step(&font_catalog, host.settings.font_family, 1))
+		} else if hot == .WeightPrevious || hot == .WeightNext {
+			if len(host.settings.font_family) > 0 {
+				step := hot == .WeightNext ? 1 : -1
+				host_settings_font_weight(font_weight_step(&font_catalog, host.settings.font_family, host.settings.font_weight, step))
+			}
+		} else if hot == .FontCustom && host.input_mode != .FontFamily {
+			input_begin(&host, .FontFamily)
+			input_set(&host, host.settings.font_family)
+			host.notice_len = 0
+			host_request_frames(2)
 		} else if hot == .SyntaxPrevious {
 			host_settings_syntax(-1)
 		} else if hot == .SyntaxNext {
@@ -845,12 +900,12 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	shift := .Shift in event->modifierFlags()
 	host.shift_down = shift
 	key := uint(event->keyCode())
-	if host.settings_open && host.input_mode == .OpenWith {
+	if host.settings_open && (host.input_mode == .OpenWith || host.input_mode == .FontFamily) {
 		switch {
 		case command && (key == 13 || key == 12):
 			if key == 13 {host.window->close()} else {host.app->terminate(nil)}
 		case key == 36, key == 76:
-			host_open_with_commit()
+			if host.input_mode == .FontFamily {host_font_family_commit()} else {host_open_with_commit()}
 		case key == 53:
 			input_reset(&host)
 			host.notice_len = 0
@@ -939,6 +994,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		switch host.input_mode {
 		case .Cd:     cd_run(&host)
 		case .OpenWith: host_open_with_commit()
+		case .FontFamily: host_font_family_commit()
 		case .Search:
 			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
 		case .None:   host_enter()

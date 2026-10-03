@@ -18,6 +18,9 @@ Settings :: struct {
 	editor:    string,
 	// Name of the syntax theme for previews, owned; empty or unknown means Default.
 	syntax_theme: string,
+	// Monospaced font family and style name, owned; empty family is the embedded font.
+	font_family: string,
+	font_weight: string,
 }
 
 Window_Frame :: struct {
@@ -36,6 +39,8 @@ Settings_Document :: struct {
 	animations_off: bool `json:"animations_off"`,
 	editor:        string `json:"editor"`,
 	syntax_theme:  string `json:"syntax_theme"`,
+	font_family:   string `json:"font_family"`,
+	font_weight:   string `json:"font_weight"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -86,6 +91,14 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		settings.place = document.place
 	}
 	settings.animations_off = document.animations_off
+	if len(document.font_family) > 0 {
+		delete(settings.font_family)
+		settings.font_family = document.font_family
+	}
+	if len(document.font_weight) > 0 {
+		delete(settings.font_weight)
+		settings.font_weight = document.font_weight
+	}
 	if len(document.syntax_theme) > 0 {
 		delete(settings.syntax_theme)
 		settings.syntax_theme = document.syntax_theme
@@ -116,6 +129,8 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		animations_off = settings.animations_off,
 		editor = settings.editor,
 		syntax_theme = settings.syntax_theme,
+		font_family = settings.font_family,
+		font_weight = settings.font_weight,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

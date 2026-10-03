@@ -36,6 +36,16 @@ settings_panel_hit_testing_separates_backdrop_from_controls :: proc(t: ^testing.
 	testing.expect_value(t, hot, Settings_Hot.SyntaxPrevious)
 	hot, _ = view_settings_hot(layout, {layout.syntax_next.x+layout.syntax_next.w/2, layout.syntax_next.y+layout.syntax_next.h/2})
 	testing.expect_value(t, hot, Settings_Hot.SyntaxNext)
+	hot, _ = view_settings_hot(layout, {layout.font_previous.x+layout.font_previous.w/2, layout.font_previous.y+layout.font_previous.h/2})
+	testing.expect_value(t, hot, Settings_Hot.FontPrevious)
+	hot, _ = view_settings_hot(layout, {layout.font_next.x+layout.font_next.w/2, layout.font_next.y+layout.font_next.h/2})
+	testing.expect_value(t, hot, Settings_Hot.FontNext)
+	hot, _ = view_settings_hot(layout, {layout.font_custom.x+layout.font_custom.w/2, layout.font_custom.y+layout.font_custom.h/2})
+	testing.expect_value(t, hot, Settings_Hot.FontCustom)
+	hot, _ = view_settings_hot(layout, {layout.weight_previous.x+layout.weight_previous.w/2, layout.weight_previous.y+layout.weight_previous.h/2})
+	testing.expect_value(t, hot, Settings_Hot.WeightPrevious)
+	hot, _ = view_settings_hot(layout, {layout.weight_next.x+layout.weight_next.w/2, layout.weight_next.y+layout.weight_next.h/2})
+	testing.expect_value(t, hot, Settings_Hot.WeightNext)
 }
 
 @(test)
@@ -88,7 +98,7 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 
 	_ = os.remove(SETTINGS_TEST_PATH)
 	defer os.remove(SETTINGS_TEST_PATH)
-	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed", syntax_theme = "Nord"}))
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed", syntax_theme = "Nord", font_family = "JetBrains Mono", font_weight = "Bold"}))
 	loaded := settings_defaults()
 	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &loaded))
 	defer delete(loaded.terminal)
@@ -98,6 +108,10 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 	testing.expect_value(t, loaded.editor, "Zed")
 	defer delete(loaded.syntax_theme)
 	testing.expect_value(t, loaded.syntax_theme, "Nord")
+	defer delete(loaded.font_family)
+	defer delete(loaded.font_weight)
+	testing.expect_value(t, loaded.font_family, "JetBrains Mono")
+	testing.expect_value(t, loaded.font_weight, "Bold")
 }
 
 @(test)
@@ -131,4 +145,45 @@ syntax_themes_are_distinct_named_and_step_around :: proc(t: ^testing.T) {
 		for kind in Syntax_Kind {testing.expect(t, colors[kind].a == 1, SYNTAX_THEME_NAMES[index])}
 		if index > 0 {testing.expect(t, colors != syntax_theme(0), SYNTAX_THEME_NAMES[index])}
 	}
+}
+
+@(test)
+font_picker_steps_families_and_weights_and_picks_the_nearest_regular :: proc(t: ^testing.T) {
+	catalog := Font_Catalog{}
+	defer delete(catalog.faces)
+	defer delete(catalog.families)
+	faces := []Font_Face{
+		{family = "Mono A", style = "Bold", postscript = "MonoA-Bold", weight = 0.4},
+		{family = "Mono A", style = "Light", postscript = "MonoA-Light", weight = -0.23},
+		{family = "Mono A", style = "Regular", postscript = "MonoA", weight = 0},
+		{family = "Mono A", style = "Italic", postscript = "MonoA-It", weight = 0, italic = true},
+		{family = "Mono A", style = "Wide Bold", postscript = "MonoA-WideBold", weight = 0.4},
+		{family = "Mono B", style = "Semi-Condensed", postscript = "MonoB-SC", weight = 0},
+		{family = "Mono B", style = "Bold Semi-Condensed", postscript = "MonoB-BSC", weight = 0.4},
+		{family = "Mono B", style = "Bold Semi-Condensed 2", postscript = "MonoB-BSC2", weight = 0.4},
+	}
+	for face in faces {append(&catalog.faces, face)}
+	font_catalog_index(&catalog)
+	testing.expect_value(t, len(catalog.families), 2)
+
+	testing.expect_value(t, font_family_step(&catalog, "", 1), "Mono A")
+	testing.expect_value(t, font_family_step(&catalog, "Mono A", 1), "Mono B")
+	testing.expect_value(t, font_family_step(&catalog, "Mono B", 1), "")
+	testing.expect_value(t, font_family_step(&catalog, "", -1), "Mono B")
+
+	weights := font_family_weights(&catalog, "Mono A")
+	testing.expect_value(t, len(weights), 3)
+	testing.expect_value(t, weights[0].style, "Light")
+	testing.expect_value(t, weights[2].style, "Bold")
+	testing.expect_value(t, font_weight_step(&catalog, "Mono A", "Regular", 1), "Bold")
+	testing.expect_value(t, font_weight_step(&catalog, "Mono A", "Light", -1), "Bold")
+	testing.expect_value(t, font_effective_style(&catalog, "Mono A", "Missing"), "Regular")
+	testing.expect_value(t, font_effective_style(&catalog, "", "Bold"), "Regular")
+	// A family with no plain weight names offers one face per weight.
+	testing.expect_value(t, len(font_family_weights(&catalog, "Mono B")), 2)
+	known, ok := font_family_known(&catalog, "mono a")
+	testing.expect(t, ok)
+	testing.expect_value(t, known, "Mono A")
+	_, ok = font_family_known(&catalog, "Helvetica")
+	testing.expect(t, !ok)
 }

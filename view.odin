@@ -29,6 +29,11 @@ Settings_Hot :: enum {
 	EditorCustom,
 	SyntaxPrevious,
 	SyntaxNext,
+	FontPrevious,
+	FontNext,
+	FontCustom,
+	WeightPrevious,
+	WeightNext,
 }
 
 Hot_State :: struct {
@@ -74,6 +79,7 @@ PLUS_LABEL :: "[+]"
 PREVIOUS_LABEL :: "[<]"
 NEXT_LABEL :: "[>]"
 EDITOR_CUSTOM_LABEL :: "[Other]"
+FONT_BUILT_IN_LABEL :: "Iosevka (built in)"
 
 Settings_Layout :: struct {
 	panel:     draw.Rect,
@@ -93,6 +99,13 @@ Settings_Layout :: struct {
 	syntax_top: f32,
 	syntax_previous: draw.Rect,
 	syntax_next: draw.Rect,
+	font_top: f32,
+	font_previous: draw.Rect,
+	font_next: draw.Rect,
+	font_custom: draw.Rect,
+	weight_top: f32,
+	weight_previous: draw.Rect,
+	weight_next: draw.Rect,
 	hint_top:  f32,
 }
 
@@ -302,14 +315,22 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 8*row+2*pad
+	height := 10*row+2*pad
 	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	title_top := panel.y+pad
 	row_top := title_top+row
 	button := 3*ch
 	plus := draw.Rect{panel.x+panel.w-pad-button, row_top, button, row}
 	minus := draw.Rect{plus.x-button-ch, row_top, button, row}
-	terminal_top := row_top+row
+	font_top := row_top+row
+	font_next := draw.Rect{plus.x, font_top, button, row}
+	font_previous := draw.Rect{minus.x, font_top, button, row}
+	font_custom_width := f32(len(EDITOR_CUSTOM_LABEL))*ch
+	font_custom := draw.Rect{font_previous.x-ch-font_custom_width, font_top, font_custom_width, row}
+	weight_top := font_top+row
+	weight_next := draw.Rect{plus.x, weight_top, button, row}
+	weight_previous := draw.Rect{minus.x, weight_top, button, row}
+	terminal_top := weight_top+row
 	next := draw.Rect{plus.x, terminal_top, button, row}
 	previous := draw.Rect{minus.x, terminal_top, button, row}
 	animations_top := terminal_top+row
@@ -341,6 +362,13 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 		syntax_top = syntax_top,
 		syntax_previous = syntax_previous,
 		syntax_next = syntax_next,
+		font_top = font_top,
+		font_previous = font_previous,
+		font_next = font_next,
+		font_custom = font_custom,
+		weight_top = weight_top,
+		weight_previous = weight_previous,
+		weight_next = weight_next,
 		hint_top = syntax_top+row,
 	}
 }
@@ -370,6 +398,11 @@ view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_
 	if view_rect_has(layout.editor_next, point) {return .EditorNext, true}
 	if view_rect_has(layout.editor_custom, point) {return .EditorCustom, true}
 	if view_rect_has(layout.syntax_previous, point) {return .SyntaxPrevious, true}
+	if view_rect_has(layout.font_previous, point) {return .FontPrevious, true}
+	if view_rect_has(layout.font_next, point) {return .FontNext, true}
+	if view_rect_has(layout.font_custom, point) {return .FontCustom, true}
+	if view_rect_has(layout.weight_previous, point) {return .WeightPrevious, true}
+	if view_rect_has(layout.weight_next, point) {return .WeightNext, true}
 	if view_rect_has(layout.syntax_next, point) {return .SyntaxNext, true}
 	if point.x >= layout.animations.x && point.x < layout.animations.x+layout.animations.w &&
 	   point.y >= layout.animations.y && point.y < layout.animations.y+layout.animations.h {
@@ -701,7 +734,7 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 	switch state.input_mode {
 	case .Cd:
 		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false, state.input_caret, state.input_sel_start, state.input_sel_end)
-	case .OpenWith:
+	case .OpenWith, .FontFamily:
 		// The field lives in the settings modal.
 	case .Search:
 		if len(state.input) == 0 {
@@ -791,6 +824,39 @@ view_draw_settings :: proc(
 	if hot.settings_hot == .Plus {draw.solid(list, plus, COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, MINUS_LABEL, layout.minus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Minus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, PLUS_LABEL, layout.plus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Plus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	editing_font := state.input_mode == .FontFamily
+	if editing_font {
+		prefix := "Font: "
+		field_x := left+f32(len(prefix))*metrics.char_advance
+		view_draw_text(text, list, prefix, left, layout.font_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+		field := draw.Rect{field_x, layout.font_top, layout.font_next.x+layout.font_next.w-field_x, tree.row_height}
+		view_draw_field(text, list, state.input, field, tree, metrics, state.input_caret, state.input_sel_start, state.input_sel_end)
+	} else {
+		family_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
+			{layout.font_previous, .FontPrevious, PREVIOUS_LABEL},
+			{layout.font_next, .FontNext, NEXT_LABEL},
+			{layout.font_custom, .FontCustom, EDITOR_CUSTOM_LABEL},
+		}
+		for button in family_buttons {
+			inverted := hot.settings_hot == button.hot
+			if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+			view_draw_text(text, list, button.label, button.rect.x, layout.font_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+		}
+		family_name := fmt.tprintf("Font: %s", len(settings.font_family) > 0 ? settings.font_family : FONT_BUILT_IN_LABEL)
+		view_draw_text(text, list, family_name, left, layout.font_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.font_custom.x-left-metrics.char_advance, 0))
+	}
+	weight_locked := len(settings.font_family) == 0
+	weight_buttons := [2]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
+		{layout.weight_previous, .WeightPrevious, PREVIOUS_LABEL},
+		{layout.weight_next, .WeightNext, NEXT_LABEL},
+	}
+	for button in weight_buttons {
+		inverted := hot.settings_hot == button.hot && !weight_locked
+		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		color := weight_locked ? COLOR_DIM : (inverted ? COLOR_BACKGROUND : COLOR_TEXT)
+		view_draw_text(text, list, button.label, button.rect.x, layout.weight_top, tree.row_height, tree.font_size, color, metrics.height)
+	}
+	view_draw_text(text, list, fmt.tprintf("Weight: %s", settings.font_weight), left, layout.weight_top, tree.row_height, tree.font_size, weight_locked ? COLOR_DIM : COLOR_TEXT, metrics.height)
 	previous := view_rect_draw(layout.previous, metrics)
 	next := view_rect_draw(layout.next, metrics)
 	if hot.settings_hot == .Previous {draw.solid(list, previous, COLOR_TEXT, edge_softness = 0)}
@@ -833,11 +899,12 @@ view_draw_settings :: proc(
 		view_draw_text(text, list, button.label, button.rect.x, layout.syntax_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	}
 	view_draw_text(text, list, fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)]), left, layout.syntax_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	editing = editing || editing_font
 	switch {
 	case editing && len(state.notice) > 0:
 		view_draw_text(text, list, state.notice, left, layout.hint_top, tree.row_height, tree.font_size, COLOR_RED, metrics.height)
 	case editing:
-		view_draw_text(text, list, "enter saves · esc cancels · empty = system default", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+		view_draw_text(text, list, editing_font ? "enter saves · esc cancels · empty = built-in font" : "enter saves · esc cancels · empty = system default", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 	case:
 		view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 	}
