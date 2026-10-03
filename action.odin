@@ -132,8 +132,8 @@ action_perform :: proc(host: ^Host, kind: Action_Kind) {
 	host_request_frames(2)
 }
 
-// action_gather marks or unmarks the highlighted entry and steps down after a
-// mark, so a run is marked with 6, down, 6, down.
+// action_gather marks or unmarks the highlighted entry, leaving the selection
+// where it is.
 action_gather :: proc(host: ^Host) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok {return}
@@ -142,7 +142,6 @@ action_gather :: proc(host: ^Host) {
 		return
 	}
 	gather_add(&host.gather_paths, entry.path)
-	_ = tree_move(&host.tree, 1)
 }
 
 // action_clip marks the gathered set when there is one, otherwise the
