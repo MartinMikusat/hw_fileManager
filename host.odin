@@ -867,13 +867,13 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		case .Cd:     cd_run(&host)
 		case .Search:
 			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
-		case .None:   if !preview_focus_begin(&host) {_ = tree_expand(&host.tree)}
+		case .None:   host_enter()
 		}
 	case key == 48:
 		if host.input_mode == .Cd {cd_complete(&host)}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
-	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28, key == 25:
+	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28, key == 25, key == 29:
 		if host.input_mode == .None {
 			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind, shift)}
 		}
@@ -887,6 +887,21 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		_ = tree_move(&host.tree, 10)
 	}
 	host_request_frames(2)
+}
+
+// host_enter opens the selection: folders open as columns, text files take the
+// focus into their preview (when there is anything to scroll), and every other
+// file opens in its default app.
+host_enter :: proc() {
+	if entry, ok := tree_selected_entry(&host.tree); ok && !entry.is_dir {
+		if host.preview.kind == .Text {
+			_ = preview_focus_begin(&host)
+		} else {
+			action_open(&host)
+		}
+		return
+	}
+	_ = tree_expand(&host.tree)
 }
 
 host_run :: proc() -> bool {

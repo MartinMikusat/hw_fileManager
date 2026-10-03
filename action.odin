@@ -20,11 +20,12 @@ Action_Kind :: enum {
 	Clear,
 	Terminal,
 	Refresh,
+	Open,
 }
 
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
 // something is gathered. Clear lives in the gather panel, not the bar.
-ACTION_BAR_ORDER := [8]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal}
+ACTION_BAR_ORDER := [9]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal, .Open}
 GATHER_CLEAR_LABEL :: "[8 Clear]"
 
 action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
@@ -39,6 +40,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Clear:   return GATHER_CLEAR_LABEL
 	case .Terminal: return "[9 Terminal]"
 	case .Refresh: return "[⌘R Refresh]"
+	case .Open:    return "[0 Open]"
 	}
 	return ""
 }
@@ -54,6 +56,7 @@ action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	case 26: return .Trash, true
 	case 28: return .Clear, true
 	case 25: return .Terminal, true
+	case 29: return .Open, true
 	}
 	return .Copy, false
 }
@@ -78,6 +81,9 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 		return has_clip
 	case .Refresh:
 		return true
+	case .Open:
+		entry, ok := tree_selected_entry(tree)
+		return ok && !entry.is_dir
 	case .NewFile, .Terminal:
 		return tree.active >= 0 && tree.active < len(tree.columns)
 	case .Trash, .Clear:
@@ -86,7 +92,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 	return false
 }
 
-ACTION_MAX :: 9
+ACTION_MAX :: 10
 
 Action_Bar :: struct {
 	kinds: [ACTION_MAX]Action_Kind,
@@ -145,8 +151,26 @@ action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	case .Clear:   gather_clear(&host.gather_paths)
 	case .Terminal: action_terminal(host)
 	case .Refresh: _ = tree_refresh(&host.tree)
+	case .Open:    action_open(host)
 	}
 	host_request_frames(2)
+}
+
+// action_open opens the selected file in its default app. Enter does this for
+// everything except text files, which it previews; this is their way in.
+action_open :: proc(host: ^Host) {
+	entry, ok := tree_selected_entry(&host.tree)
+	if !ok || entry.is_dir {return}
+	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "--", entry.path}}, context.allocator)
+	defer delete(stdout, context.allocator)
+	defer delete(stderr, context.allocator)
+	if err != nil || !state.success || state.exit_code != 0 {
+		devlog.failed(devlog.global(), {feature = "files", operation = "open_default"}, {
+			reason = "file could not be opened",
+			severity = .Warning,
+		}, {file_id = entry.name})
+		notice_set(host, "file could not be opened")
+	}
 }
 
 // action_terminal opens the configured terminal in the focused column's folder.
