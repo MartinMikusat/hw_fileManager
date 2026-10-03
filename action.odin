@@ -18,6 +18,7 @@ Action_Kind :: enum {
 	Trash,
 	Clear,
 	Terminal,
+	Refresh,
 }
 
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
@@ -36,6 +37,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Trash:   return shift ? "[⇧7 Delete]" : "[7 Trash]"
 	case .Clear:   return GATHER_CLEAR_LABEL
 	case .Terminal: return "[9 Terminal]"
+	case .Refresh: return "[Refresh]"
 	}
 	return ""
 }
@@ -73,6 +75,8 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 		return ok
 	case .Paste:
 		return has_clip
+	case .Refresh:
+		return true
 	case .NewFile, .Terminal:
 		return tree.active >= 0 && tree.active < len(tree.columns)
 	case .Trash, .Clear:
@@ -81,7 +85,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 	return false
 }
 
-ACTION_MAX :: 8
+ACTION_MAX :: 9
 
 Action_Bar :: struct {
 	kinds: [ACTION_MAX]Action_Kind,
@@ -102,6 +106,11 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 		bar.count += 1
 		x += width+ACTION_GAP_CELLS*metrics.char_advance
 	}
+	// Shortcuts that already have a key sit at the right edge, without a number.
+	refresh_width := f32(len(action_label(.Refresh)))*metrics.char_advance
+	bar.kinds[bar.count] = .Refresh
+	bar.rects[bar.count] = {metrics.width-COLUMN_PAD-refresh_width, top, refresh_width, metrics.row_height}
+	bar.count += 1
 	return bar
 }
 
@@ -134,6 +143,7 @@ action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	case .Trash:   action_destroy(host, to_trash = !shift)
 	case .Clear:   gather_clear(&host.gather_paths)
 	case .Terminal: action_terminal(host)
+	case .Refresh: _ = tree_refresh(&host.tree)
 	}
 	host_request_frames(2)
 }

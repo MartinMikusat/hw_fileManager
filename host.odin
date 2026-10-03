@@ -144,6 +144,11 @@ host_update_ready :: proc "c" (self: NS.id, cmd: NS.SEL, object: NS.id) {
 	host_request_frames(2)
 }
 
+host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	watch_mark()
+}
+
 host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
 	delegate_class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "FileManagerDelegate", 0)
 	if delegate_class == nil {return nil, nil, false}
@@ -151,6 +156,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerUpdateReady:", rawptr(host_update_ready), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationDidBecomeActive:", rawptr(host_did_become_active), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
@@ -428,6 +434,7 @@ host_render :: proc() {
 	if !view_layout(&host.tree, metrics, edit, min(frame_dt, 1.0/30)) {host_request_frames(1)}
 	host.frame_animated = host.tree.pan_moving
 	if host.tree.pan_moving {host_request_frames(1)}
+	watch_follow(&host.tree)
 	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
 	host.preview_shown = host.preview_shown && host.preview.kind != .None
 	if !preview_text_shown(&host) {host.preview.focused = false}
@@ -628,6 +635,7 @@ host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 	// The frame is consumed before drawing, so a frame requested while drawing (a preview or
 	// listing still waiting) survives it.
 	host.frames_pending -= 1
+	watch_refresh_due(&host)
 	host_render()
 	host_remember_place()
 	free_all(context.temp_allocator)
