@@ -76,6 +76,8 @@ Preview :: struct {
 	kind:     Preview_Kind,
 	text:     string,
 	lines:    [dynamic]string,
+	// Syntax class of each byte of text; all Plain without a known language.
+	kinds:    []Syntax_Kind,
 	texture:  ^MTL.Texture,
 	width:    int,
 	height:   int,
@@ -85,6 +87,7 @@ preview_clear :: proc(preview: ^Preview) {
 	delete(preview.path)
 	delete(preview.text)
 	delete(preview.lines)
+	delete(preview.kinds)
 	if preview.texture != nil {preview.texture->release()}
 	preview^ = {}
 }
@@ -216,6 +219,7 @@ preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 	text, is_text := preview_read_text(entry.path)
 	if !is_text {return}
 	preview.text = text
+	preview.kinds = highlight_kinds(highlight_language(entry.name), text)
 	preview.lines = make([dynamic]string, 0, 64)
 	rest := text
 	for len(rest) > 0 && len(preview.lines) < PREVIEW_TEXT_LINES {

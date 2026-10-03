@@ -26,3 +26,26 @@ preview_decodes_an_image_within_the_pixel_cap :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(pixels), width*height*4)
 	testing.expect_value(t, pixels[3], u8(255))
 }
+
+@(test)
+highlight_classifies_odin_json_and_markup :: proc(t: ^testing.T) {
+	source := "proc(x: int) -> string { return \"a\" } // done"
+	kinds := highlight_kinds(.Odin, source, context.temp_allocator)
+	testing.expect_value(t, kinds[0], Syntax_Kind.Keyword)
+	testing.expect_value(t, kinds[8], Syntax_Kind.Type)
+	testing.expect_value(t, kinds[len(source)-1], Syntax_Kind.Comment)
+
+	json := `{"k": [1, true], "s": "v"}`
+	kinds = highlight_kinds(.Json, json, context.temp_allocator)
+	testing.expect_value(t, kinds[1], Syntax_Kind.Property)
+	testing.expect_value(t, kinds[7], Syntax_Kind.Number)
+	testing.expect_value(t, kinds[11], Syntax_Kind.Keyword)
+	testing.expect_value(t, kinds[22], Syntax_Kind.String)
+
+	markup := `<a href="x"><!-- c --></a>`
+	kinds = highlight_kinds(.Markup, markup, context.temp_allocator)
+	testing.expect_value(t, kinds[1], Syntax_Kind.Tag)
+	testing.expect_value(t, kinds[3], Syntax_Kind.Property)
+	testing.expect_value(t, kinds[9], Syntax_Kind.String)
+	testing.expect_value(t, kinds[15], Syntax_Kind.Comment)
+}
