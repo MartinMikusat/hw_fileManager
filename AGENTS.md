@@ -27,3 +27,7 @@ kind. Source lives at the repository root (`package file_manager`).
   `file_manager --offscreen <path.ppm> [--path=DIR] [--font-size=N] [--settings]` for
   headless structural checks
   instead of launching the app.
+- Trial rule (remove once evaluated): start each task with the hw_harness
+  `find_context` tool, and use its `check` and `evidence` tools for compile and
+  test evidence before falling back to `./test.sh`. Note in the report whether
+  they helped.
