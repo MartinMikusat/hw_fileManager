@@ -47,7 +47,7 @@ NOTICE_MAX :: 96
 SETTINGS_PANEL_WIDTH :: f32(380)
 GATHER_PANEL_MAX_ROWS :: 10
 
-COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.35}
+COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.75}
 
 row_height_for :: proc(font_size: f32) -> f32 {
 	return font_size*ROW_HEIGHT_RATIO
