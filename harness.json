@@ -6,7 +6,8 @@
     "ui_framework": "../odin_libraries/hw_odin_ui_framework"
   },
   "copy": [
-    "build/ui.metallib"
+    "build/ui.metallib",
+    "references/01-tree-connectors.jpg"
   ],
   "foundation": [
     "theme.odin",
