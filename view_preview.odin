@@ -21,11 +21,11 @@ Preview_View :: struct {
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
-// the active column's parent column, which stays visible beside it.
+// the active column's grandparent, so both ancestor levels stay visible beside it.
 view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics) -> (draw.Rect, bool) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return {}, false}
-	keep := &tree.columns[max(tree.active-1, 0)]
-	left := COLUMN_PAD
+	keep := &tree.columns[max(tree.active-2, 0)]
+	left := f32(0)
 	right := keep.x-COLUMN_PAD-1
 	top := CHROME_HEIGHT
 	bottom := metrics.height-metrics.bar_height
@@ -35,8 +35,11 @@ view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics) -> (draw.Rect, boo
 
 view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, rect: draw.Rect, preview: Preview_View, metrics: View_Metrics) {
 	draw.solid(list, view_rect_draw(rect, metrics), COLOR_BACKGROUND, edge_softness = 0)
-	inset := COLUMN_PAD
-	area := draw.Rect{rect.x+inset, rect.y+inset, rect.w-2*inset, rect.h-2*inset}
+	// The panel reaches the window edge so no column peeks out beside it; the
+	// content keeps the usual inset, and is clipped to it, wide glyphs included.
+	area := draw.Rect{rect.x+2*COLUMN_PAD, rect.y+COLUMN_PAD, rect.w-3*COLUMN_PAD, rect.h-2*COLUMN_PAD}
+	draw.push_clip(list, view_rect_draw(area, metrics))
+	defer draw.pop_clip(list)
 	switch preview.kind {
 	case .None:
 	case .Cloud:

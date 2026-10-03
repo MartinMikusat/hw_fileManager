@@ -445,7 +445,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	column := &tree.columns[index]
 	top := CHROME_HEIGHT
 	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
-	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width, bottom-top})
+	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width+metrics.char_advance, bottom-top})
 	defer draw.pop_clip(list)
 	searching := state.input_mode == .Search && len(state.input) > 0
 	completing := state.input_mode == .Cd && state.cd_completing && len(state.input) > 0 && index == tree.active
@@ -457,7 +457,9 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		selected := row == column.selected
 		current := selected && index == tree.active
 		if current {
-			draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTED_ROW)
+			left := column.x+COLUMN_PAD-metrics.char_advance
+			right := column.x+column.width-COLUMN_PAD+metrics.char_advance
+			draw.solid(list, {left, metrics.height-row_top-tree.row_height, right-left, tree.row_height}, COLOR_SELECTED_ROW)
 		}
 		if path_list_contains(state.gather_paths, entry.path) {
 			view_draw_gather_marker(list, metrics, column.x-COLUMN_PAD+3, row_top, tree.row_height)
