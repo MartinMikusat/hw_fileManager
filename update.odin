@@ -2,11 +2,11 @@ package file_manager
 
 import "base:intrinsics"
 import "base:runtime"
-import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:thread"
 import "core:time"
+import NS "core:sys/darwin/Foundation"
 import devlog "devlog:."
 import native_update "native_update:."
 
@@ -27,7 +27,6 @@ Updater :: struct {
 	thread:        ^thread.Thread,
 	cancel:        bool,
 	ready:         bool,
-	announced:     bool,
 	prepared:      native_update.Prepared,
 	installed_app: string,
 }
@@ -84,6 +83,10 @@ update_worker :: proc(_: ^thread.Thread) {
 			updater.prepared = prepared
 			devlog.succeeded(devlog.global(), site, {stage = "ready"})
 			intrinsics.atomic_store(&updater.ready, true)
+			// The window is idle between events, so wake it to show the notice.
+			pool := NS.scoped_autoreleasepool()
+			_ = pool
+			intrinsics.objc_send(nil, host.delegate, "performSelectorOnMainThread:withObject:waitUntilDone:", NS.sel_registerName("fileManagerUpdateReady:"), NS.id(nil), NS.BOOL(false))
 			return
 		case .Error:
 			devlog.failed(devlog.global(), site, {reason = prepared.error, severity = .Warning})
@@ -117,11 +120,9 @@ update_attempt :: proc() -> native_update.Prepared {
 	return kept
 }
 
-// update_announce tells the user once that an update is staged.
-update_announce :: proc(host: ^Host) {
-	if updater.announced || !intrinsics.atomic_load(&updater.ready) {return}
-	updater.announced = true
-	notice_set(host, fmt.tprintf("update %s will install when you quit", updater.prepared.manifest.version), error = false)
+// update_ready reports, on the main thread, whether a verified update is staged.
+update_ready :: proc() -> bool {
+	return intrinsics.atomic_load(&updater.ready)
 }
 
 // update_finish stops the worker and, when an update is staged, installs it. It

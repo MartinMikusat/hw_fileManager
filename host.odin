@@ -73,7 +73,6 @@ Host :: struct {
 	edit_row:       int,
 	notice:         [NOTICE_MAX]u8,
 	notice_len:     int,
-	notice_is_error: bool,
 	notice_until_ms: i64,
 	preview:        Preview,
 	preview_rect:   draw.Rect,
@@ -131,12 +130,17 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 	})
 }
 
-notice_set :: proc(host: ^Host, text: string, error := true) {
-	host.notice_is_error = error
+notice_set :: proc(host: ^Host, text: string) {
 	length := min(len(text), NOTICE_MAX)
 	copy(host.notice[:length], text[:length])
 	host.notice_len = length
 	host.notice_until_ms = time.to_unix_nanoseconds(time.now())/1_000_000+3000
+}
+
+// host_update_ready runs on the main thread when the update worker has staged a release.
+host_update_ready :: proc "c" (self: NS.id, cmd: NS.SEL, object: NS.id) {
+	context = runtime.default_context()
+	host_request_frames(2)
 }
 
 host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
@@ -145,6 +149,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if !host_add_method(delegate_class, "fileManagerFrame:", rawptr(host_on_frame), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerUpdateReady:", rawptr(host_update_ready), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
@@ -390,7 +395,6 @@ host_render :: proc() {
 		row = host.edit_row,
 		text = edit_text(&host),
 	}
-	update_announce(&host)
 	notice := ""
 	notice_error := false
 	if host.edit_mode != .None {
@@ -409,8 +413,9 @@ host_render :: proc() {
 	}
 	if len(notice) == 0 && host.notice_len > 0 && time.to_unix_nanoseconds(now)/1_000_000 < host.notice_until_ms {
 		notice = string(host.notice[:host.notice_len])
-		notice_error = host.notice_is_error
+		notice_error = true
 	}
+	if len(notice) == 0 && update_ready() {notice = fmt.tprintf("update %s will install when you quit", updater.prepared.manifest.version)}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
 	preview_update(&host.preview, &host.tree, host.device)
