@@ -28,8 +28,8 @@ column_context_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
 	delete(column.below)
 }
 
-context_block_read :: proc(directory: Entry, allocator: mem.Allocator) -> (Block, bool) {
-	entries, ok := read_entries(directory.path, allocator)
+context_block_read :: proc(directory: Entry, sort: Sort, allocator: mem.Allocator) -> (Block, bool) {
+	entries, ok := read_entries(directory.path, sort, allocator)
 	if !ok {
 		devlog.failed(devlog.global(), {feature = "files", operation = "read_context"}, {
 			reason = "sibling folder could not be read",
@@ -74,7 +74,7 @@ tree_load_context :: proc(tree: ^Tree, view_top, view_bottom, gap: f32) -> bool 
 			column.above_next -= 1
 			if !entry.is_dir {continue}
 			reads += 1
-			if block, ok := context_block_read(entry, tree.allocator); ok {
+			if block, ok := context_block_read(entry, tree.sort, tree.allocator); ok {
 				block.row = row
 				append(&column.above, block)
 				top -= gap+f32(len(block.entries))*tree.row_height
@@ -90,7 +90,7 @@ tree_load_context :: proc(tree: ^Tree, view_top, view_bottom, gap: f32) -> bool 
 			column.below_next += 1
 			if !entry.is_dir {continue}
 			reads += 1
-			if block, ok := context_block_read(entry, tree.allocator); ok {
+			if block, ok := context_block_read(entry, tree.sort, tree.allocator); ok {
 				block.row = row
 				append(&column.below, block)
 				bottom += gap+f32(len(block.entries))*tree.row_height
@@ -140,7 +140,7 @@ tree_load_trail :: proc(tree: ^Tree, view_top, gap: f32) -> bool {
 		column.trail_next -= 1
 		if !entry.is_dir {continue}
 		reads += 1
-		if block, ok := context_block_read(entry, tree.allocator); ok {
+		if block, ok := context_block_read(entry, tree.sort, tree.allocator); ok {
 			block.row = row
 			append(&column.trail, block)
 		}

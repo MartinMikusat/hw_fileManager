@@ -26,6 +26,8 @@ Settings :: struct {
 	font_width: string,
 	line_height: int,
 	letter_spacing: int,
+	// Sort token, e.g. "name" or "modified-desc"; empty is name A-Z.
+	sort: string,
 }
 
 Window_Frame :: struct {
@@ -49,6 +51,7 @@ Settings_Document :: struct {
 	font_width:    string `json:"font_width"`,
 	line_height:   int `json:"line_height"`,
 	letter_spacing: int `json:"letter_spacing"`,
+	sort:          string `json:"sort"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -148,6 +151,10 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		delete(settings.terminal)
 		settings.terminal = document.terminal
 	}
+	if len(document.sort) > 0 {
+		delete(settings.sort)
+		settings.sort = document.sort
+	}
 	devlog.succeeded(devlog.global(), site)
 	return true
 }
@@ -171,6 +178,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		font_width = settings.font_width,
 		line_height = settings.line_height == 0 ? 0 : settings_line_height_clamped(settings.line_height),
 		letter_spacing = settings_letter_spacing_clamped(settings.letter_spacing),
+		sort = settings.sort,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

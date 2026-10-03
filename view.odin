@@ -54,6 +54,8 @@ Hot_State :: struct {
 	control:         int,
 	settings_button: bool,
 	settings_hot:    Settings_Hot,
+	sort_button:     bool,
+	sort_row:        int,
 	action:          Action_Kind,
 	action_hot:      bool,
 }
@@ -61,6 +63,7 @@ Hot_State :: struct {
 View_State :: struct {
 	settings:         Settings,
 	settings_open:    bool,
+	sort_open:        bool,
 	hot:              Hot_State,
 	input_mode:       Input_Mode,
 	input:            string,
@@ -334,6 +337,55 @@ view_settings_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> bool 
 	return point.x >= rect.x && point.x < rect.x+rect.w && point.y >= metrics.height-rect.y-rect.h && point.y < metrics.height-rect.y
 }
 
+// The sort control sits one cell left of Settings, in the same borderless style.
+view_sort_control_rect :: proc(tree: ^Tree, metrics: View_Metrics) -> draw.Rect {
+	height := min(metrics.row_height, CHROME_HEIGHT)
+	width := label_cells(sort_label(tree.sort))*metrics.char_advance
+	settings := view_settings_control_rect(metrics)
+	x := settings.x-metrics.char_advance-width
+	y := (CHROME_HEIGHT-height)/2
+	return {x, metrics.height-y-height, width, height}
+}
+
+view_sort_control_at :: proc(point: ui.Vec2, tree: ^Tree, metrics: View_Metrics) -> bool {
+	if point.y >= CHROME_HEIGHT {return false}
+	rect := view_sort_control_rect(tree, metrics)
+	return view_rect_has(rect, {point.x, metrics.height-point.y})
+}
+
+Sort_Menu :: struct {
+	panel: draw.Rect,
+	rows:  [SORT_OPTION_COUNT]draw.Rect,
+}
+
+// view_sort_menu_layout drops the menu just under the chrome, right-aligned to
+// the button but kept inside the window.
+view_sort_menu_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Sort_Menu {
+	row := metrics.row_height
+	width := f32(0)
+	for option in sort_options {
+		width = max(width, f32(len(sort_option_label(option)))*metrics.char_advance)
+	}
+	width += 2*COLUMN_PAD
+	button := view_sort_control_rect(tree, metrics)
+	x := clamp(button.x+button.w-width, COLUMN_PAD, max(metrics.width-width-COLUMN_PAD, COLUMN_PAD))
+	menu := Sort_Menu{panel = {x, CHROME_HEIGHT, width, f32(SORT_OPTION_COUNT)*row}}
+	for index in 0 ..< SORT_OPTION_COUNT {
+		menu.rows[index] = {x, CHROME_HEIGHT+f32(index)*row, width, row}
+	}
+	return menu
+}
+
+// view_sort_menu_at returns the row under the point; inside is true anywhere on
+// the panel, so a click on its padding still closes it.
+view_sort_menu_at :: proc(layout: Sort_Menu, point: ui.Vec2) -> (row: int, inside: bool) {
+	if !rect_contains(layout.panel, point) {return -1, false}
+	for index in 0 ..< SORT_OPTION_COUNT {
+		if rect_contains(layout.rows[index], point) {return index, true}
+	}
+	return -1, true
+}
+
 view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings_Tab.General) -> Settings_Layout {
 	ch := metrics.char_advance
 	row := tree.row_height
@@ -446,9 +498,12 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
 	settings_top := metrics.height-settings.y-settings.h
 	view_draw_text(text, list, SETTINGS_LABEL, settings.x, settings_top, settings.h, tree.font_size, hot.settings_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	// The version sits just left of the Settings button; the title yields the room.
+	sort := view_sort_control_rect(tree, metrics)
+	if hot.sort_button {draw.solid(list, sort, COLOR_TEXT, edge_softness = 0)}
+	view_draw_text(text, list, sort_label(tree.sort), sort.x, settings_top, sort.h, tree.font_size, hot.sort_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	// The version sits just left of the sort control; the title yields the room.
 	version_width := f32(len(APP_VERSION))*metrics.char_advance
-	version_x := settings.x-metrics.char_advance-version_width
+	version_x := sort.x-metrics.char_advance-version_width
 	view_draw_text(text, list, APP_VERSION, version_x, settings_top, settings.h, tree.font_size, COLOR_DIM, metrics.height)
 	title := tree_root_directory(tree)
 	if entry, ok := tree_selected_entry(tree); ok {title = entry.path}
@@ -766,6 +821,21 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
+view_draw_sort_menu :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
+	if !state.sort_open {return}
+	layout := view_sort_menu_layout(tree, metrics)
+	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_SELECTION_BG, edge_softness = 0)
+	for index in 0 ..< SORT_OPTION_COUNT {
+		option := sort_options[index]
+		rect := layout.rows[index]
+		active := option == tree.sort
+		hot := index == state.hot.sort_row
+		if active || hot {draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		color := (active || hot) ? COLOR_BACKGROUND : COLOR_TEXT
+		view_draw_text(text, list, sort_option_label(option), rect.x+COLUMN_PAD, rect.y, rect.h, tree.font_size, color, metrics.height)
+	}
+}
+
 // view_draw_field draws an editable single-line field on a dark box, with its
 // selection and caret, scrolled to keep the caret in view. rect is top-origin.
 view_draw_field :: proc(text: ^coretext.Context, list: ^draw.List, value: string, rect: draw.Rect, tree: ^Tree, metrics: View_Metrics, caret, sel_start, sel_end: int) {
@@ -903,5 +973,6 @@ view_draw :: proc(
 	if state.preview_shown {view_draw_preview(tree, list, text, state.preview_rect, state.preview, metrics)}
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_gather(tree, list, text, metrics, state)
+	view_draw_sort_menu(tree, list, text, metrics, state)
 	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot, state)
 }

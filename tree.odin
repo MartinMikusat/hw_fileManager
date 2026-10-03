@@ -42,6 +42,7 @@ Tree :: struct {
 	font_size:  f32,
 	row_height: f32,
 	line_ratio: f32,
+	sort:       Sort,
 	allocator:  mem.Allocator,
 }
 
@@ -53,6 +54,7 @@ tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
 	tree.font_size = DEFAULT_FONT_SIZE
 	tree.line_ratio = ROW_HEIGHT_RATIO
 	tree.row_height = row_height_for(DEFAULT_FONT_SIZE, tree.line_ratio)
+	tree.sort = SORT_DEFAULT
 }
 
 tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
@@ -85,10 +87,10 @@ column_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
 	column^ = {}
 }
 
-column_load :: proc(column: ^Column, directory: string, allocator: mem.Allocator) -> bool {
+column_load :: proc(column: ^Column, directory: string, sort: Sort, allocator: mem.Allocator) -> bool {
 	site := devlog.Site{feature = "files", operation = "read_directory"}
 	devlog.started(devlog.global(), site, {file_id = filepath.base(directory)})
-	entries, ok := read_entries(directory, allocator)
+	entries, ok := read_entries(directory, sort, allocator)
 	if !ok {
 		devlog.failed(devlog.global(), site, {
 			reason = "directory could not be read",
@@ -128,13 +130,13 @@ tree_open_columns :: proc(tree: ^Tree, directory: string) -> bool {
 	parent := filepath.dir(directory)
 	if len(parent) == 0 || parent == directory {
 		root: Column
-		if !column_load(&root, directory, tree.allocator) {return false}
+		if !column_load(&root, directory, tree.sort, tree.allocator) {return false}
 		append(&tree.columns, root)
 		tree.active = 0
 		return true
 	}
 	root: Column
-	if !column_load(&root, parent, tree.allocator) {return false}
+	if !column_load(&root, parent, tree.sort, tree.allocator) {return false}
 	append(&tree.columns, root)
 	tree.active = 0
 	name := filepath.base(directory)
@@ -166,7 +168,7 @@ tree_refresh :: proc(tree: ^Tree) -> bool {
 		}
 	}
 	for directory, index in directories {
-		if !column_load(&tree.columns[index], directory, tree.allocator) {
+		if !column_load(&tree.columns[index], directory, tree.sort, tree.allocator) {
 			// A trashed or deleted folder leaves a column with no directory: drop it
 			// and the columns that hang off it instead of keeping stale rows.
 			if index == 0 {return false}
@@ -209,7 +211,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) 
 	}
 	tree_truncate(tree, column_index+1)
 	child: Column
-	if !column_load(&child, entry.path, tree.allocator) {
+	if !column_load(&child, entry.path, tree.sort, tree.allocator) {
 		tree.active = column_index
 		return false
 	}
@@ -273,7 +275,7 @@ tree_prepend :: proc(tree: ^Tree) -> bool {
 	if len(parent_dir) == 0 || parent_dir == root {return false}
 	name := filepath.base(root)
 	parent: Column
-	if !column_load(&parent, parent_dir, tree.allocator) {return false}
+	if !column_load(&parent, parent_dir, tree.sort, tree.allocator) {return false}
 	parent.selected = -1
 	for entry, index in parent.entries {
 		if entry.name == name {parent.selected = index}
@@ -309,7 +311,7 @@ tree_extend :: proc(tree: ^Tree, parent_index: int) {
 	}
 	tree_truncate(tree, parent_index+1)
 	child: Column
-	if column_load(&child, path, tree.allocator) {append(&tree.columns, child)}
+	if column_load(&child, path, tree.sort, tree.allocator) {append(&tree.columns, child)}
 }
 
 tree_collapse :: proc(tree: ^Tree) -> bool {

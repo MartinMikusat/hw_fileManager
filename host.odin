@@ -48,6 +48,9 @@ Host :: struct {
 	char_advance:   f32,
 	hot_settings_button: bool,
 	hot_settings_hot:    Settings_Hot,
+	hot_sort_button:     bool,
+	hot_sort_row:        int,
+	sort_open:      bool,
 	settings:       Settings,
 	settings_open:  bool,
 	settings_tab:   Settings_Tab,
@@ -261,6 +264,7 @@ host_initialize :: proc() -> bool {
 	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
 
 	tree_init(&host.tree)
+	host.tree.sort = sort_parse(host.settings.sort)
 	host.gather_hot_row = -1
 	tree_set_line_ratio(&host.tree, settings_line_ratio(host.settings))
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
@@ -450,12 +454,15 @@ host_render :: proc() {
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host_settings_view(),
 		settings_open = host.settings_open,
+		sort_open = host.sort_open,
 		settings_tab = host.settings_tab,
 		width_locked = host_width_locked(),
 		hot = {
 			control = host.hot_control,
 			settings_button = host.hot_settings_button,
 			settings_hot = host.hot_settings_hot,
+			sort_button = host.hot_sort_button,
+			sort_row = host.hot_sort_row,
 			action = host.hot_action,
 			action_hot = host.hot_action_hot,
 		},
@@ -520,12 +527,16 @@ host_update_hover :: proc(point: ui.Vec2) {
 	control := -1
 	settings_button := false
 	settings_hot := Settings_Hot.None
+	sort_button := false
+	sort_row := -1
 	action := host.hot_action
 	action_hot := false
 	gather_row := -1
 	gather_clear := false
 	if host.settings_open {
 		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
+	} else if host.sort_open {
+		sort_row, _ = view_sort_menu_at(view_sort_menu_layout(&host.tree, metrics), point)
 	} else {
 		if len(host.gather_paths) > 0 {
 			layout := gather_panel_layout(metrics, len(host.gather_paths))
@@ -534,16 +545,19 @@ host_update_hover :: proc(point: ui.Vec2) {
 		}
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
+		if !settings_button {sort_button = view_sort_control_at(point, &host.tree, metrics)}
 		gathered := len(host.gather_paths) > 0
 		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(&host), host.shift_down); inside && action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
 	}
-	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && action == host.hot_action && action_hot == host.hot_action_hot && gather_row == host.gather_hot_row && gather_clear == host.gather_hot_clear {return}
+	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && sort_button == host.hot_sort_button && sort_row == host.hot_sort_row && action == host.hot_action && action_hot == host.hot_action_hot && gather_row == host.gather_hot_row && gather_clear == host.gather_hot_clear {return}
 	host.hot_control = control
 	host.hot_settings_button = settings_button
 	host.hot_settings_hot = settings_hot
+	host.hot_sort_button = sort_button
+	host.hot_sort_row = sort_row
 	host.hot_action = action
 	host.hot_action_hot = action_hot
 	host.gather_hot_row = gather_row
@@ -716,6 +730,19 @@ host_settings_adjust :: proc(delta: int) {
 	host_request_frames(2)
 }
 
+// host_sort_set re-reads every column in the new order; tree_refresh keeps the
+// selection by path, and the sibling listings re-read on the next layout pass.
+host_sort_set :: proc(sort: Sort) {
+	if sort == host.tree.sort {return}
+	host.tree.sort = sort
+	delete(host.settings.sort)
+	host.settings.sort = strings.clone(sort_encode(sort))
+	_ = tree_refresh(&host.tree)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
+}
+
 host_miniaturize :: proc() {
 	host.window->setStyleMask(MINIMIZE_STYLE)
 	intrinsics.objc_send(nil, host.window, "miniaturize:", NS.id(nil))
@@ -785,6 +812,18 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		edit_commit(&host)
 		host_request_frames(2)
 		return
+	}
+	if host.sort_open {
+		layout := view_sort_menu_layout(&host.tree, metrics)
+		if row, inside := view_sort_menu_at(layout, point); inside {
+			if row >= 0 {host_sort_set(sort_options[row])}
+			host.sort_open = false
+			host_request_frames(2)
+			return
+		}
+		host.sort_open = false
+		host_request_frames(1)
+		if view_sort_control_at(point, &host.tree, metrics) {return}
 	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
@@ -862,6 +901,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	}
 	if control := view_control_at(point, metrics); control >= 0 {
 		host_apply_control(control)
+		return
+	}
+	if view_sort_control_at(point, &host.tree, metrics) {
+		host.sort_open = true
+		host_request_frames(2)
 		return
 	}
 	if view_settings_control_at(point, metrics) {
@@ -951,6 +995,18 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	shift := .Shift in event->modifierFlags()
 	host.shift_down = shift
 	key := uint(event->keyCode())
+	if host.sort_open {
+		switch {
+		case command && key == 13:
+			host.window->close()
+		case command && key == 12:
+			host.app->terminate(nil)
+		case key == 53:
+			host.sort_open = false
+			host_request_frames(1)
+		}
+		return
+	}
 	if host.settings_open && (host.input_mode == .OpenWith || host.input_mode == .FontFamily) {
 		switch {
 		case command && (key == 13 || key == 12):
@@ -1023,6 +1079,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		host.app->terminate(nil)
 		return
 	case command && key == 43:
+		host.sort_open = false
 		host.settings_open = true
 		host_request_frames(1)
 		return

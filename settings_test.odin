@@ -86,7 +86,7 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 
 	_ = os.remove(SETTINGS_TEST_PATH)
 	defer os.remove(SETTINGS_TEST_PATH)
-	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed", syntax_theme = "Nord", font_family = "JetBrains Mono", font_weight = "Bold", font_width = "Wide", line_height = 180, letter_spacing = -4}))
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed", syntax_theme = "Nord", font_family = "JetBrains Mono", font_weight = "Bold", font_width = "Wide", line_height = 180, letter_spacing = -4, sort = "modified-desc"}))
 	loaded := settings_defaults()
 	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &loaded))
 	defer delete(loaded.terminal)
@@ -102,6 +102,8 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 	testing.expect_value(t, loaded.font_weight, "Bold")
 	defer delete(loaded.font_width)
 	testing.expect_value(t, loaded.font_width, "Wide")
+	defer delete(loaded.sort)
+	testing.expect_value(t, loaded.sort, "modified-desc")
 	testing.expect_value(t, loaded.line_height, 180)
 	testing.expect_value(t, loaded.letter_spacing, -4)
 }

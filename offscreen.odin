@@ -43,6 +43,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	font_size := 0
 	settings_open := false
 	shift := false
+	sort_menu := false
 	select_name := ""
 	gather_names: [dynamic]string
 	defer delete(gather_names)
@@ -72,6 +73,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			append(&gather_names, strings.trim_prefix(argument, "--gather="))
 		case argument == "--settings":
 			settings_open = true
+		case argument == "--sort-menu":
+			sort_menu = true
 		case argument == "--shift":
 			shift = true
 		case:
@@ -114,6 +117,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	tree: Tree
 	tree_init(&tree)
 	defer tree_destroy(&tree)
+	tree.sort = sort_parse(settings.sort)
 	settings.terminal = terminal_effective(settings.terminal, terminals_detect())
 	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
 	tree_set_line_ratio(&tree, settings_line_ratio(settings))
@@ -165,6 +169,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			gather_hot_row = -1,
 			settings = settings,
 			settings_open = settings_open,
+			sort_open = sort_menu,
 			shift = shift,
 			hot = Hot_State{control = -1},
 			now = time.now(),

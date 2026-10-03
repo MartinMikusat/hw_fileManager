@@ -23,11 +23,74 @@ Entry :: struct {
 	name:     string,
 	path:     string,
 	modified: time.Time,
+	size:     i64,
 	is_dir:   bool,
 	hidden:   bool,
 }
 
-read_entries :: proc(directory: string, allocator := context.allocator) -> ([]Entry, bool) {
+Sort_Key :: enum {
+	Name,
+	Modified,
+	Size,
+}
+
+Sort :: struct {
+	key:        Sort_Key,
+	descending: bool,
+}
+
+SORT_DEFAULT :: Sort{.Name, false}
+SORT_OPTION_COUNT :: 6
+sort_options := [SORT_OPTION_COUNT]Sort{
+	{.Name, false},
+	{.Name, true},
+	{.Modified, false},
+	{.Modified, true},
+	{.Size, false},
+	{.Size, true},
+}
+
+sort_key_name :: proc(key: Sort_Key) -> string {
+	switch key {
+	case .Name:     return "name"
+	case .Modified: return "modified"
+	case .Size:     return "size"
+	}
+	return "name"
+}
+
+// sort_parse reads the settings token, e.g. "modified-desc"; anything unknown
+// falls back to the name order.
+sort_parse :: proc(value: string) -> Sort {
+	descending := strings.has_suffix(value, "-desc")
+	key_name := descending ? value[:len(value)-len("-desc")] : value
+	for option in sort_options {
+		if sort_key_name(option.key) == key_name {return Sort{option.key, descending}}
+	}
+	return SORT_DEFAULT
+}
+
+sort_encode :: proc(sort: Sort) -> string {
+	if sort.descending {
+		return strings.concatenate({sort_key_name(sort.key), "-desc"}, context.temp_allocator)
+	}
+	return sort_key_name(sort.key)
+}
+
+sort_option_label :: proc(sort: Sort) -> string {
+	switch sort.key {
+	case .Name:     return sort.descending ? "Name Z-A" : "Name A-Z"
+	case .Modified: return sort.descending ? "Modified newest" : "Modified oldest"
+	case .Size:     return sort.descending ? "Size largest" : "Size smallest"
+	}
+	return ""
+}
+
+sort_label :: proc(sort: Sort) -> string {
+	return strings.concatenate({"[Sort: ", sort_option_label(sort), "]"}, context.temp_allocator)
+}
+
+read_entries :: proc(directory: string, sort: Sort, allocator := context.allocator) -> ([]Entry, bool) {
 	// ponytail: full synchronous read; a huge directory blocks the UI thread during
 	// selection — make this async over display-link frames if that hurts.
 	handle, open_error := os.open(directory)
@@ -45,12 +108,13 @@ read_entries :: proc(directory: string, allocator := context.allocator) -> ([]En
 			name = strings.clone(name, allocator),
 			path = strings.clone(info.fullpath, allocator),
 			modified = info.modification_time,
+			size = info.size,
 			is_dir = is_dir,
 			hidden = name[0] == '.',
 		})
 	}
 	entries := list[:]
-	slice.sort_by(entries, entry_less)
+	sort_entries(entries, sort)
 	return entries, true
 }
 
@@ -62,9 +126,32 @@ entries_destroy :: proc(entries: []Entry, allocator := context.allocator) {
 	delete(entries, allocator)
 }
 
+// slice.sort_by takes a captureless comparator, so the active sort travels
+// through this package-level variable; the app runs single-threaded.
+sort_active := SORT_DEFAULT
+
+// sort_entries orders folders before files, then by the active key, then by name
+// fold so equal keys stay alphabetical.
+sort_entries :: proc(entries: []Entry, sort: Sort) {
+	if len(entries) < 2 {return}
+	sort_active = sort
+	slice.sort_by(entries, entry_less)
+}
+
 entry_less :: proc(a, b: Entry) -> bool {
 	if a.is_dir != b.is_dir {return a.is_dir}
-	return name_less_fold(a.name, b.name)
+	#partial switch sort_active.key {
+	case .Modified:
+		if difference := time.diff(a.modified, b.modified); difference != 0 {
+			a_older := difference > 0
+			return sort_active.descending ? !a_older : a_older
+		}
+	case .Size:
+		if a.size != b.size {
+			return sort_active.descending ? a.size > b.size : a.size < b.size
+		}
+	}
+	return sort_active.descending ? name_less_fold(b.name, a.name) : name_less_fold(a.name, b.name)
 }
 
 name_less_fold :: proc(a, b: string) -> bool {

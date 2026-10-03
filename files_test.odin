@@ -37,10 +37,51 @@ read_entries_treats_a_symlink_to_a_folder_as_a_folder :: proc(t: ^testing.T) {
 	defer tree_fixture_destroy()
 	testing.expect(t, os.symlink(TREE_FIXTURE_ROOT+"/beta", TREE_FIXTURE_ROOT+"/link") == nil)
 
-	entries, ok := read_entries(TREE_FIXTURE_ROOT)
+	entries, ok := read_entries(TREE_FIXTURE_ROOT, SORT_DEFAULT)
 	testing.expect(t, ok)
 	defer entries_destroy(entries)
 	for entry in entries {
 		if entry.name == "link" {testing.expect(t, entry.is_dir)}
 	}
+}
+
+@(test)
+sort_parse_defaults_and_reads_direction :: proc(t: ^testing.T) {
+	testing.expect_value(t, sort_parse(""), SORT_DEFAULT)
+	testing.expect_value(t, sort_parse("nonsense"), SORT_DEFAULT)
+	testing.expect_value(t, sort_parse("modified"), Sort{.Modified, false})
+	testing.expect_value(t, sort_parse("modified-desc"), Sort{.Modified, true})
+	testing.expect_value(t, sort_parse("size-desc"), Sort{.Size, true})
+}
+
+@(test)
+sort_entries_orders_folders_first_then_by_key :: proc(t: ^testing.T) {
+	entries := []Entry{
+		{name = "beta", modified = time.time_add(time.Time{}, 200), size = 30},
+		{name = "alpha", modified = time.time_add(time.Time{}, 300), size = 10},
+		{name = "folder", is_dir = true, modified = time.time_add(time.Time{}, 100), size = 99},
+	}
+	expect_order :: proc(t: ^testing.T, entries: []Entry, expected: []string) {
+		for name, index in expected {
+			testing.expect_value(t, entries[index].name, name)
+		}
+	}
+
+	sort_entries(entries, {.Name, false})
+	expect_order(t, entries, {"folder", "alpha", "beta"})
+
+	sort_entries(entries, {.Name, true})
+	expect_order(t, entries, {"folder", "beta", "alpha"})
+
+	sort_entries(entries, {.Modified, false})
+	expect_order(t, entries, {"folder", "beta", "alpha"})
+
+	sort_entries(entries, {.Modified, true})
+	expect_order(t, entries, {"folder", "alpha", "beta"})
+
+	sort_entries(entries, {.Size, false})
+	expect_order(t, entries, {"folder", "alpha", "beta"})
+
+	sort_entries(entries, {.Size, true})
+	expect_order(t, entries, {"folder", "beta", "alpha"})
 }
