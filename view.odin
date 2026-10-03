@@ -326,9 +326,9 @@ view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^
 	draw.solid(list, {column.x-COLUMN_PAD, row_bottom, column.width, tree.row_height}, COLOR_SELECTION_BG)
 	content_width := max(column.width-2*COLUMN_PAD, metrics.char_advance)
 	run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, 0, 0, false)
-	caret_x := view_edit_offset(run, edit.text, edit.caret)
-	start_x := view_edit_offset(run, edit.text, edit.selection_start)
-	end_x := view_edit_offset(run, edit.text, edit.selection_end)
+	caret_x := view_edit_offset(text, run, edit.text, edit.caret)
+	start_x := view_edit_offset(text, run, edit.text, edit.selection_start)
+	end_x := view_edit_offset(text, run, edit.text, edit.selection_end)
 	scroll := max(caret_x-(content_width-metrics.char_advance), 0)
 	left := column.x+COLUMN_PAD-scroll
 	if edit.selection_end > edit.selection_start {
@@ -338,10 +338,11 @@ view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^
 	draw.solid(list, {left+caret_x, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
 }
 
-view_edit_offset :: proc(run: ^coretext.Shaped_Run, value: string, offset: int) -> f32 {
+// CTLine offsets are in backing pixels; the draw list works in logical points.
+view_edit_offset :: proc(text: ^coretext.Context, run: ^coretext.Shaped_Run, value: string, offset: int) -> f32 {
 	if run == nil || run.line == nil {return 0}
 	utf16 := text_input.utf16_index_for_byte_offset(value, offset)
-	return f32(coretext.CTLineGetOffsetForStringIndex(run.line, utf16, nil))
+	return f32(coretext.CTLineGetOffsetForStringIndex(run.line, utf16, nil))/text.backing_scale
 }
 
 // view_bar_text right-aligns on overflow so the search counter stays visible.
