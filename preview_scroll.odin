@@ -2,7 +2,7 @@ package file_manager
 
 // A text preview scrolls on its own: Enter (or the right arrow) moves the focus
 // into it, the arrow, page and home/end keys then move through the file, and
-// Escape, the left arrow or Enter hand the focus back to the tree. The wheel
+// Escape, the left or right arrow or Enter hand the focus back to the tree. The wheel
 // scrolls it whenever the pointer is over it.
 
 preview_text_shown :: proc(host: ^Host) -> bool {
@@ -40,7 +40,7 @@ preview_handle_key :: proc(host: ^Host, key: uint) -> bool {
 	case 121, 49: preview_scroll_to(host, host.preview.scroll+page)
 	case 115: preview_scroll_to(host, 0)
 	case 119: preview_scroll_to(host, f32(len(host.preview.lines)))
-	case 123, 53, 36, 76: host.preview.focused = false
+	case 123, 124, 53, 36, 76: host.preview.focused = false
 	case: return false
 	}
 	return true
