@@ -71,8 +71,6 @@ Preview_Kind :: enum {
 	Cloud,
 }
 
-// The selection must rest this long before a file is read, so moving through names reads nothing.
-PREVIEW_SETTLE :: 120*time.Millisecond
 // SF_DATALESS marks a File Provider (iCloud) file whose content is not downloaded.
 SF_DATALESS :: u32(0x40000000)
 
@@ -89,28 +87,15 @@ Preview :: struct {
 	texture:  ^MTL.Texture,
 	width:    int,
 	height:   int,
-	// The selected file waiting for the selection to settle.
-	wanted_path:     string,
-	wanted_modified: time.Time,
-	wanted_since:    time.Tick,
 }
 
 preview_clear :: proc(preview: ^Preview) {
-	preview_unload(preview)
-	delete(preview.wanted_path)
-	preview^ = {}
-}
-
-// preview_unload drops the loaded content and keeps what is waiting.
-preview_unload :: proc(preview: ^Preview) {
-	wanted_path, wanted_modified, wanted_since := preview.wanted_path, preview.wanted_modified, preview.wanted_since
 	delete(preview.path)
 	delete(preview.text)
 	delete(preview.lines)
 	delete(preview.kinds)
 	if preview.texture != nil {preview.texture->release()}
 	preview^ = {}
-	preview.wanted_path, preview.wanted_modified, preview.wanted_since = wanted_path, wanted_modified, wanted_since
 }
 
 // path_dataless reports a cloud file without content on disk; it reads only metadata.
@@ -212,31 +197,24 @@ preview_make_texture :: proc(device: ^MTL.Device, pixels: []u8, width, height: i
 	return texture
 }
 
-// preview_update follows the selection: a selected image or text file is loaded once the
-// selection has rested, and kept until the selection or the file changes. Cloud files are
-// never read. It returns true while a load is waiting, so the caller draws another frame.
-preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) -> (waiting: bool) {
+// preview_update follows the selection: a selected image or text file is loaded as soon as
+// it is selected and kept until the selection or the file changes. Cloud files are never
+// read, so moving through them costs only a metadata check.
+preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 	entry, selected := tree_selected_entry(tree)
 	if !selected || entry.is_dir {
-		if len(preview.path) > 0 || len(preview.wanted_path) > 0 {preview_clear(preview)}
-		return false
+		if len(preview.path) > 0 {preview_clear(preview)}
+		return
 	}
-	if preview.path == entry.path && preview.modified == entry.modified {return false}
-	if preview.wanted_path != entry.path || preview.wanted_modified != entry.modified {
-		preview_unload(preview)
-		delete(preview.wanted_path)
-		preview.wanted_path = strings.clone(entry.path)
-		preview.wanted_modified = entry.modified
-		preview.wanted_since = time.tick_now()
-	}
-	if time.tick_since(preview.wanted_since) < PREVIEW_SETTLE {return true}
+	if preview.path == entry.path && preview.modified == entry.modified {return}
+	preview_clear(preview)
 	started := time.tick_now()
 	defer devlog.sample_since(devlog.global(), {feature = "files", operation = "preview"}, started)
 	preview.path = strings.clone(entry.path)
 	preview.modified = entry.modified
 	if path_dataless(entry.path) {
 		preview.kind = .Cloud
-		return false
+		return
 	}
 	site := devlog.Site{feature = "files", operation = "preview"}
 	if preview_is_image_name(entry.name) {
@@ -270,5 +248,4 @@ preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) -> (
 		append(&preview.lines, line)
 	}
 	preview.kind = .Text
-	return false
 }

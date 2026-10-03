@@ -412,7 +412,7 @@ host_render :: proc() {
 	}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
-	if preview_update(&host.preview, &host.tree, host.device) {host_request_frames(1)}
+	preview_update(&host.preview, &host.tree, host.device)
 	if !view_layout(&host.tree, metrics, edit) {host_request_frames(1)}
 	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
 	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
