@@ -23,6 +23,7 @@ COLOR_DIM           :: draw.Color{0.510, 0.510, 0.541, 1.0}
 COLOR_RECENT        :: draw.Color{0.427, 0.620, 0.973, 1.0}
 ENTRY_AGE_SPAN      :: 30*24*time.Hour
 COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
+COLOR_SELECTED_ROW  :: draw.Color{0.780, 0.100, 0.130, 1.0}
 COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
 COLOR_SEARCH        :: draw.Color{0.420, 0.860, 0.790, 1.0}
 COLOR_RED           :: draw.Color{1.0, 0.230, 0.230, 1.0}

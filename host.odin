@@ -80,7 +80,10 @@ Host :: struct {
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	shift_down:     bool,
+	terminals:      Terminals,
 	frames_pending: int,
+	frame_tick:     time.Tick,
+	frame_animated: bool,
 	initialized:    bool,
 }
 
@@ -242,9 +245,10 @@ host_initialize :: proc() -> bool {
 	host.gather_hot_row = -1
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
+	host.terminals = terminals_detect()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) > 0 {
-		if !tree_open(&host.tree, start) && !host_open_home() {return false}
+		if !tree_open(&host.tree, start, grandparent = true) && !host_open_home() {return false}
 	} else if !host_restore_place() && !host_open_home() {
 		return false
 	}
@@ -256,8 +260,8 @@ host_initialize :: proc() -> bool {
 }
 
 host_open_home :: proc() -> bool {
-	if !tree_open(&host.tree, home_directory()) {
-		if !tree_open(&host.tree, "/") {
+	if !tree_open(&host.tree, home_directory(), grandparent = true) {
+		if !tree_open(&host.tree, "/", grandparent = true) {
 			fmt.eprintln("[hw_fileManager] no readable starting directory")
 			host_failure("no readable starting directory", .Critical)
 			return false
@@ -272,7 +276,7 @@ host_open_home :: proc() -> bool {
 host_restore_place :: proc() -> bool {
 	place := host.settings.place
 	if len(place) == 0 || !path_taken(place) {return false}
-	if !tree_open(&host.tree, filepath.dir(place)) {return false}
+	if !tree_open(&host.tree, filepath.dir(place), grandparent = true) {return false}
 	_ = tree_select_name(&host.tree, host.tree.active, filepath.base(place))
 	return true
 }
@@ -406,12 +410,18 @@ host_render :: proc() {
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
 	preview_update(&host.preview, &host.tree, host.device)
-	if !view_layout(&host.tree, metrics, edit) {host_request_frames(1)}
+	frame_dt := f32(time.duration_seconds(time.tick_since(host.frame_tick)))
+	if !host.frame_animated {frame_dt = 1.0/60}
+	host.frame_tick = time.tick_now()
+	if host.settings.animations_off {frame_dt = 0}
+	if !view_layout(&host.tree, metrics, edit, min(frame_dt, 1.0/30)) {host_request_frames(1)}
+	host.frame_animated = host.tree.pan_moving
+	if host.tree.pan_moving {host_request_frames(1)}
 	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
 	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
 	host.preview_shown = host.preview_shown && host.preview.kind != .None
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
-		settings = host.settings,
+		settings = host_settings_view(),
 		settings_open = host.settings_open,
 		hot = {
 			control = host.hot_control,
@@ -525,6 +535,34 @@ host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Noti
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 }
 
+// host_settings_view is the settings with the terminal that would actually open.
+host_settings_view :: proc() -> Settings {
+	view := host.settings
+	view.terminal = host_terminal()
+	return view
+}
+
+host_terminal :: proc() -> string {
+	return terminal_effective(host.settings.terminal, host.terminals)
+}
+
+host_settings_animations :: proc() {
+	host.settings.animations_off = !host.settings.animations_off
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
+}
+
+host_settings_terminal :: proc(direction: int) {
+	next, ok := terminal_step(host.settings.terminal, host.terminals, direction)
+	if !ok {return}
+	delete(host.settings.terminal)
+	host.settings.terminal = strings.clone(next)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
+}
+
 host_settings_adjust :: proc(delta: int) {
 	next := settings_font_size_clamped(host.settings.font_size+delta)
 	if next == host.settings.font_size {return}
@@ -613,6 +651,12 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_settings_adjust(-1)
 		} else if hot == .Plus {
 			host_settings_adjust(1)
+		} else if hot == .Previous {
+			host_settings_terminal(-1)
+		} else if hot == .Next {
+			host_settings_terminal(1)
+		} else if hot == .Animations {
+			host_settings_animations()
 		}
 		return
 	}
@@ -776,7 +820,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if host.input_mode == .Cd {cd_complete(&host)}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
-	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28:
+	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28, key == 25:
 		if host.input_mode == .None {
 			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind, shift)}
 		}

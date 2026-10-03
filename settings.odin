@@ -11,6 +11,9 @@ Settings :: struct {
 	window:    Window_Frame,
 	// Last selected path, owned; reopened on the next start while it exists.
 	place:     string,
+	// Terminal app opened by the Terminal action, owned; empty means the first installed.
+	terminal:  string,
+	animations_off: bool,
 }
 
 Window_Frame :: struct {
@@ -25,6 +28,8 @@ Settings_Document :: struct {
 	window_width:  f32 `json:"window_width"`,
 	window_height: f32 `json:"window_height"`,
 	place:         string `json:"place"`,
+	terminal:      string `json:"terminal"`,
+	animations_off: bool `json:"animations_off"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -74,6 +79,11 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		delete(settings.place)
 		settings.place = document.place
 	}
+	settings.animations_off = document.animations_off
+	if len(document.terminal) > 0 {
+		delete(settings.terminal)
+		settings.terminal = document.terminal
+	}
 	devlog.succeeded(devlog.global(), site)
 	return true
 }
@@ -88,6 +98,8 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		window_width = settings.window.w,
 		window_height = settings.window.h,
 		place = settings.place,
+		terminal = settings.terminal,
+		animations_off = settings.animations_off,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

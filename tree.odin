@@ -29,6 +29,16 @@ Tree :: struct {
 	active:     int,
 	pan_x:      f32,
 	pan_y:      f32,
+	// pan_x/pan_y spring toward the layout's targets; the rest is spring state.
+	pan_vx:     f32,
+	pan_vy:     f32,
+	pan_snap:   bool,
+	pan_moving: bool,
+	slots:      [dynamic]Slot,
+	offsets:    [dynamic]Stack_Offset,
+	layout_width:  f32,
+	layout_height: f32,
+	layout_font:   f32,
 	font_size:  f32,
 	row_height: f32,
 	allocator:  mem.Allocator,
@@ -55,6 +65,7 @@ tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
 tree_destroy :: proc(tree: ^Tree) {
 	assert(tree != nil)
 	for &column in tree.columns {column_destroy(&column, tree.allocator)}
+	tree_slots_destroy(tree)
 	delete(tree.columns)
 	tree.columns = nil
 	tree.allocator = {}
@@ -96,11 +107,17 @@ tree_truncate :: proc(tree: ^Tree, length: int) {
 }
 
 // tree_open shows the starting directory as a selected entry inside its parent
-// column, so the cascade and its connector are visible on the first frame.
-tree_open :: proc(tree: ^Tree, directory: string) -> bool {
+// column, so the cascade and its connector are visible on the first frame;
+// grandparent adds the parent's own parent in front.
+tree_open :: proc(tree: ^Tree, directory: string, grandparent := false) -> bool {
+	if !tree_open_columns(tree, directory) {return false}
+	if grandparent {_ = tree_prepend(tree)}
+	return true
+}
+
+tree_open_columns :: proc(tree: ^Tree, directory: string) -> bool {
 	tree_truncate(tree, 0)
-	tree.pan_x = 0
-	tree.pan_y = 0
+	tree.pan_snap = true
 	parent := filepath.dir(directory)
 	if len(parent) == 0 || parent == directory {
 		root: Column
@@ -131,8 +148,11 @@ tree_refresh :: proc(tree: ^Tree) -> bool {
 	defer delete(directories, context.temp_allocator)
 	selected := make([]string, len(tree.columns), context.temp_allocator)
 	defer delete(selected, context.temp_allocator)
+	rows := make([]int, len(tree.columns), context.temp_allocator)
+	defer delete(rows, context.temp_allocator)
 	for column, index in tree.columns {
 		directories[index] = column.dir
+		rows[index] = column.selected
 		if column.selected >= 0 && column.selected < len(column.entries) {
 			// Clone: column_load destroys the entry strings it points into.
 			selected[index] = strings.clone(column.entries[column.selected].path, context.temp_allocator)
@@ -144,9 +164,13 @@ tree_refresh :: proc(tree: ^Tree) -> bool {
 			// and the columns that hang off it instead of keeping stale rows.
 			if index == 0 {return false}
 			tree_truncate(tree, index)
+			parent := &tree.columns[index-1]
+			if parent.selected >= 0 {_ = tree_select(tree, index-1, parent.selected, enter = false)}
 			return true
 		}
 		column := &tree.columns[index]
+		// A removed selection falls to the entry now in its row, or the last one.
+		if len(column.entries) > 0 && rows[index] >= 0 {column.selected = min(rows[index], len(column.entries)-1)}
 		for entry, entry_index in column.entries {
 			if entry.path == selected[index] {
 				column.selected = entry_index
@@ -172,7 +196,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) 
 		return true
 	}
 	if column_index+1 < len(tree.columns) && tree.columns[column_index+1].dir == entry.path {
-		tree_truncate(tree, column_index+2)
+		tree_extend(tree, column_index+1)
 		tree.active = enter ? column_index+1 : column_index
 		return true
 	}
@@ -183,6 +207,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) 
 		return false
 	}
 	append(&tree.columns, child)
+	tree_extend(tree, column_index+1)
 	tree.active = enter ? column_index+1 : column_index
 	return true
 }
@@ -226,13 +251,63 @@ tree_expand :: proc(tree: ^Tree) -> bool {
 	if !column.entries[column.selected].is_dir {return false}
 	if tree.active+1 < len(tree.columns) {
 		tree.active += 1
+		tree_extend(tree, tree.active+1)
 		return true
 	}
 	return tree_select(tree, tree.active, column.selected)
 }
 
+// tree_prepend puts the root column's parent in front of it, with the old root
+// selected; the active column keeps its place in the cascade.
+tree_prepend :: proc(tree: ^Tree) -> bool {
+	if len(tree.columns) == 0 {return false}
+	root := tree.columns[0].dir
+	parent_dir := filepath.dir(root)
+	if len(parent_dir) == 0 || parent_dir == root {return false}
+	name := filepath.base(root)
+	parent: Column
+	if !column_load(&parent, parent_dir, tree.allocator) {return false}
+	parent.selected = -1
+	for entry, index in parent.entries {
+		if entry.name == name {parent.selected = index}
+	}
+	inject_at(&tree.columns, 0, parent)
+	tree.active += 1
+	tree.pan_snap = true
+	return true
+}
+
+// tree_ascend focuses a new parent column in front of the root column, so the
+// cascade can be walked above where it was opened.
+tree_ascend :: proc(tree: ^Tree) -> bool {
+	if !tree_prepend(tree) {return false}
+	tree.active = 0
+	return true
+}
+
+// tree_extend keeps the column after parent_index previewing that column's selected
+// folder, reusing it when it already does. Each selection is thereby shown two
+// levels deep: its own contents and those of the folder selected inside them.
+tree_extend :: proc(tree: ^Tree, parent_index: int) {
+	if parent_index < 0 || parent_index >= len(tree.columns) {return}
+	parent := &tree.columns[parent_index]
+	if parent.selected < 0 || parent.selected >= len(parent.entries) || !parent.entries[parent.selected].is_dir {
+		tree_truncate(tree, parent_index+1)
+		return
+	}
+	path := parent.entries[parent.selected].path
+	if parent_index+1 < len(tree.columns) && tree.columns[parent_index+1].dir == path {
+		tree_truncate(tree, parent_index+2)
+		return
+	}
+	tree_truncate(tree, parent_index+1)
+	child: Column
+	if column_load(&child, path, tree.allocator) {append(&tree.columns, child)}
+}
+
 tree_collapse :: proc(tree: ^Tree) -> bool {
-	if tree.active <= 0 {return false}
+	if tree.active == 0 {return tree_ascend(tree)}
+	if tree.active < 0 {return false}
 	target := tree.active-1
 	selected := tree.columns[target].selected
 	tree_truncate(tree, tree.active)

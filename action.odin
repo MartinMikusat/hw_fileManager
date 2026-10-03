@@ -17,17 +17,13 @@ Action_Kind :: enum {
 	Gather,
 	Trash,
 	Clear,
+	Terminal,
 }
 
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
 // something is gathered. Clear lives in the gather panel, not the bar.
-ACTION_BAR_ORDER := [7]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash}
+ACTION_BAR_ORDER := [8]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal}
 GATHER_CLEAR_LABEL :: "[8 Clear]"
-
-action_bar_kinds :: proc(gathered: bool) -> []Action_Kind {
-	if gathered {return ACTION_BAR_ORDER[:]}
-	return ACTION_BAR_ORDER[:6]
-}
 
 action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
 	switch kind {
@@ -39,6 +35,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Gather:  return ungather ? "[6 Ungather]" : "[6 Gather]"
 	case .Trash:   return shift ? "[⇧7 Delete]" : "[7 Trash]"
 	case .Clear:   return GATHER_CLEAR_LABEL
+	case .Terminal: return "[9 Terminal]"
 	}
 	return ""
 }
@@ -53,6 +50,7 @@ action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	case 22: return .Gather, true
 	case 26: return .Trash, true
 	case 28: return .Clear, true
+	case 25: return .Terminal, true
 	}
 	return .Copy, false
 }
@@ -75,7 +73,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 		return ok
 	case .Paste:
 		return has_clip
-	case .NewFile:
+	case .NewFile, .Terminal:
 		return tree.active >= 0 && tree.active < len(tree.columns)
 	case .Trash, .Clear:
 		return gathered
@@ -83,7 +81,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 	return false
 }
 
-ACTION_MAX :: 7
+ACTION_MAX :: 8
 
 Action_Bar :: struct {
 	kinds: [ACTION_MAX]Action_Kind,
@@ -93,15 +91,15 @@ Action_Bar :: struct {
 
 // action_bar_layout are top-origin rects in the bottom row of the bar.
 action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool) -> Action_Bar {
-	kinds := action_bar_kinds(gathered)
 	bar: Action_Bar
-	bar.count = len(kinds)
 	top := metrics.height-metrics.row_height
 	x := COLUMN_PAD
-	for kind, index in kinds {
+	for kind in ACTION_BAR_ORDER {
+		if kind == .Trash && !gathered {continue}
 		width := f32(len(action_label(kind, ungather, shift)))*metrics.char_advance
-		bar.kinds[index] = kind
-		bar.rects[index] = {x, top, width, metrics.row_height}
+		bar.kinds[bar.count] = kind
+		bar.rects[bar.count] = {x, top, width, metrics.row_height}
+		bar.count += 1
 		x += width+ACTION_GAP_CELLS*metrics.char_advance
 	}
 	return bar
@@ -135,8 +133,25 @@ action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	case .Gather:  action_gather(host)
 	case .Trash:   action_destroy(host, to_trash = !shift)
 	case .Clear:   gather_clear(&host.gather_paths)
+	case .Terminal: action_terminal(host)
 	}
 	host_request_frames(2)
+}
+
+// action_terminal opens the configured terminal in the focused column's folder.
+action_terminal :: proc(host: ^Host) {
+	directory, ok := action_paste_directory(&host.tree)
+	if !ok {return}
+	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "-a", host_terminal(), directory}}, context.allocator)
+	defer delete(stdout, context.allocator)
+	defer delete(stderr, context.allocator)
+	if err != nil || !state.success || state.exit_code != 0 {
+		devlog.failed(devlog.global(), {feature = "files", operation = "open_terminal"}, {
+			reason = "terminal could not be opened",
+			severity = .Warning,
+		}, {file_id = filepath.base(directory)})
+		notice_set(host, "terminal could not be opened")
+	}
 }
 
 // action_gather marks or unmarks the highlighted entry, leaving the selection

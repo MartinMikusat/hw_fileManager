@@ -47,7 +47,8 @@ tree_open_selects_the_starting_directory_in_its_parent :: proc(t: ^testing.T) {
 
 	start := strings.concatenate({TREE_FIXTURE_ROOT, "/alpha"}, context.temp_allocator)
 	testing.expect(t, tree_open(&tree, start))
-	testing.expect_value(t, len(tree.columns), 2)
+	// alpha's first entry is a folder, shown a second level deep.
+	testing.expect_value(t, len(tree.columns), 3)
 	testing.expect_value(t, tree.active, 1)
 	testing.expect_value(t, tree.columns[0].entries[tree.columns[0].selected].name, "alpha")
 	// read_dir reports canonical paths, so /tmp may arrive as /private/tmp.
@@ -179,13 +180,15 @@ tree_refresh_drops_the_column_of_a_deleted_directory :: proc(t: ^testing.T) {
 	defer tree_destroy(&host.tree)
 	defer gather_destroy(&host.gather_paths)
 	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
-	testing.expect_value(t, len(host.tree.columns), 2)
+	testing.expect_value(t, len(host.tree.columns), 3)
 
 	gather_add(&host.gather_paths, action_fixture_path("alpha"))
 	action_delete(&host)
 	testing.expect(t, !os.exists(action_fixture_path("alpha")))
-	testing.expect_value(t, len(host.tree.columns), 1)
+	// The selection falls to the neighbouring folder, previewed beside it.
+	testing.expect(t, strings.has_suffix(host.tree.columns[1].dir, "/beta"))
 	testing.expect_value(t, host.tree.active, 0)
+	testing.expect_value(t, host.tree.columns[0].entries[host.tree.columns[0].selected].name, "beta")
 }
 
 @(test)
@@ -198,12 +201,45 @@ tree_collapse_keeps_the_parent_selection_previewed :: proc(t: ^testing.T) {
 	defer tree_destroy(&tree)
 	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT))
 	testing.expect_value(t, tree.active, 1)
-	testing.expect_value(t, len(tree.columns), 2)
+	testing.expect_value(t, len(tree.columns), 3)
 
 	preview := tree.columns[1].dir
 	testing.expect(t, tree_collapse(&tree))
 	testing.expect_value(t, tree.active, 0)
 	// The parent stays focused but its selected folder is still shown beside it.
-	testing.expect_value(t, len(tree.columns), 2)
+	testing.expect_value(t, len(tree.columns), 3)
 	testing.expect_value(t, tree.columns[1].dir, preview)
+}
+
+@(test)
+tree_collapse_at_the_root_column_adds_its_parent :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, strings.concatenate({TREE_FIXTURE_ROOT, "/alpha/nested"}, context.temp_allocator)))
+	testing.expect(t, tree_focus_column(&tree, 0))
+	root := tree.columns[0].dir
+
+	testing.expect(t, tree_collapse(&tree))
+	testing.expect_value(t, tree.active, 0)
+	testing.expect_value(t, tree.columns[1].dir, root)
+	testing.expect_value(t, tree.columns[0].entries[tree.columns[0].selected].name, "alpha")
+}
+
+@(test)
+tree_select_previews_two_levels_and_open_adds_a_grandparent :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT, grandparent = true))
+	// [/, /tmp, root, alpha]: a grandparent in front, the first folder previewed behind.
+	testing.expect_value(t, tree.active, 2)
+	testing.expect_value(t, len(tree.columns), 4)
+	testing.expect(t, strings.has_suffix(tree.columns[3].dir, "/alpha"))
 }

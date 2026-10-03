@@ -20,6 +20,9 @@ Settings_Hot :: enum {
 	None,
 	Minus,
 	Plus,
+	Previous,
+	Next,
+	Animations,
 }
 
 Hot_State :: struct {
@@ -62,6 +65,8 @@ View_State :: struct {
 SETTINGS_LABEL :: "[Settings]"
 MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
+PREVIOUS_LABEL :: "[<]"
+NEXT_LABEL :: "[>]"
 
 Settings_Layout :: struct {
 	panel:     draw.Rect,
@@ -69,6 +74,11 @@ Settings_Layout :: struct {
 	row_top:   f32,
 	minus:     draw.Rect,
 	plus:      draw.Rect,
+	terminal_top: f32,
+	previous:  draw.Rect,
+	next:      draw.Rect,
+	animations_top: f32,
+	animations: draw.Rect,
 	hint_top:  f32,
 }
 
@@ -108,7 +118,17 @@ view_column_top :: proc(tree: ^Tree, index: int) -> f32 {
 	return y
 }
 
-view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
+// view_block_key is the directory a block lists.
+view_block_key :: proc(block: Block) -> string {
+	if len(block.entries) == 0 {return ""}
+	return filepath.dir(block.entries[0].path)
+}
+
+// view_place_columns lays out every listing at its target row, then shifts each by
+// its slot offset so listings that change row slide there instead of jumping.
+view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics, dt: f32, snap: bool) {
+	tree_slots_begin(tree)
+	defer tree_slots_end(tree)
 	x := COLUMN_PAD+tree.pan_x
 	gap := view_context_gap(tree)
 	for index in 0 ..< len(tree.columns) {
@@ -128,6 +148,33 @@ view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 		}
 		x += column.width+COLUMN_GAP
 		_ = trail_place(tree, column, gap)
+		// The stack moves rigidly: the first listing also present last frame
+		// sets how far the whole stack jumped, and the spring unwinds that jump.
+		// A trail is kept after the selection leaves its file but is not shown,
+		// and its folders then also appear as other columns' listings.
+		trail_shown := view_trail_shown(column)
+		stacks := [3][]Block{column.above[:], column.below[:], trail_shown ? column.trail[:] : nil}
+		jump, anchored := tree_slot_jump(tree, column.dir, column.y-tree.pan_y)
+		for blocks in stacks {
+			for block in blocks {
+				block_jump, known := tree_slot_jump(tree, view_block_key(block), block.y-tree.pan_y)
+				if known && !anchored {jump, anchored = block_jump, true}
+			}
+		}
+		stack := &tree.offsets[index]
+		if snap {
+			stack^ = {}
+		} else {
+			stack.value += jump
+			// Sibling listings load only near the view, so a slide longer than half
+			// of it (a huge folder passing by) would reveal listings never read.
+			if abs(stack.value) > (metrics.height-metrics.bar_height-CHROME_HEIGHT)/2 {stack^ = {}}
+			if !spring_step(&stack.value, &stack.velocity, 0, dt) {tree.pan_moving = true}
+		}
+		for blocks in stacks {
+			for &block in blocks {block.y += stack.value}
+		}
+		column.y += stack.value
 	}
 }
 
@@ -137,33 +184,52 @@ view_context_gap :: proc(tree: ^Tree) -> f32 {
 	return 2*tree.font_size
 }
 
-// view_center_pan_y puts the active selection's row on the middle line.
-view_center_pan_y :: proc(tree: ^Tree, metrics: View_Metrics) {
-	if tree.active < 0 || tree.active >= len(tree.columns) {return}
+// view_pan_y_target puts the active selection's row on the middle line.
+view_pan_y_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
+	if tree.active < 0 || tree.active >= len(tree.columns) {return tree.pan_y}
 	column := &tree.columns[tree.active]
-	if column.selected < 0 {return}
+	if column.selected < 0 {return tree.pan_y}
 	center := (CHROME_HEIGHT+(metrics.height-metrics.bar_height))/2
 	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
-	tree.pan_y = center-row_center
+	return center-row_center
 }
 
-// view_center_pan_x pins the active column's left edge to the vertical center
+// view_pan_x_target pins the active column's left edge to the vertical center
 // line, so a name growing or shrinking never shifts the cascade.
-view_center_pan_x :: proc(tree: ^Tree, metrics: View_Metrics) {
-	if tree.active < 0 || tree.active >= len(tree.columns) {return}
+view_pan_x_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
+	if tree.active < 0 || tree.active >= len(tree.columns) {return tree.pan_x}
 	left := COLUMN_PAD
 	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
-	tree.pan_x = metrics.width/2-left
+	return metrics.width/2-left
 }
 
 // view_layout returns false when sibling listings are still being read, so the
-// caller should draw another frame.
-view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}) -> bool {
-	view_center_pan_y(tree, metrics)
+// caller should draw another frame. A positive dt springs the pan toward its
+// target (tree.pan_moving stays set until it rests); zero, a resize or a font
+// change snaps. Columns hang off the pan, so the child column and sibling blocks
+// follow the same spring.
+view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}, dt := f32(0)) -> bool {
+	snap := dt <= 0 || tree.pan_snap || metrics.width != tree.layout_width || metrics.height != tree.layout_height || tree.font_size != tree.layout_font
+	tree.layout_width, tree.layout_height, tree.layout_font = metrics.width, metrics.height, tree.font_size
+	tree.pan_snap = false
+	target_y := view_pan_y_target(tree, metrics)
+	settled_y := true
+	if snap {
+		tree.pan_y, tree.pan_vy = target_y, 0
+	} else {
+		settled_y = spring_step(&tree.pan_y, &tree.pan_vy, target_y, dt)
+	}
 	complete := tree_load_context(tree, CHROME_HEIGHT, metrics.height-metrics.bar_height, view_context_gap(tree))
 	view_measure_columns(tree, metrics, edit)
-	view_center_pan_x(tree, metrics)
-	view_place_columns(tree, metrics)
+	target_x := view_pan_x_target(tree, metrics)
+	settled_x := true
+	if snap {
+		tree.pan_x, tree.pan_vx = target_x, 0
+	} else {
+		settled_x = spring_step(&tree.pan_x, &tree.pan_vx, target_x, dt)
+	}
+	tree.pan_moving = !(settled_x && settled_y)
+	view_place_columns(tree, metrics, dt, snap)
 	return complete
 }
 
@@ -213,20 +279,31 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 4*row+2*pad
+	height := 6*row+2*pad
 	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	title_top := panel.y+pad
 	row_top := title_top+row
 	button := 3*ch
 	plus := draw.Rect{panel.x+panel.w-pad-button, row_top, button, row}
 	minus := draw.Rect{plus.x-button-ch, row_top, button, row}
+	terminal_top := row_top+row
+	next := draw.Rect{plus.x, terminal_top, button, row}
+	previous := draw.Rect{minus.x, terminal_top, button, row}
+	animations_top := terminal_top+row
+	toggle := 5*ch
+	animations := draw.Rect{plus.x+plus.w-toggle, animations_top, toggle, row}
 	return {
 		panel = panel,
 		title_top = title_top,
 		row_top = row_top,
 		minus = minus,
 		plus = plus,
-		hint_top = row_top+row,
+		terminal_top = terminal_top,
+		previous = previous,
+		next = next,
+		animations_top = animations_top,
+		animations = animations,
+		hint_top = animations_top+row,
 	}
 }
 
@@ -238,6 +315,18 @@ view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_
 	if point.x >= layout.plus.x && point.x < layout.plus.x+layout.plus.w &&
 	   point.y >= layout.plus.y && point.y < layout.plus.y+layout.plus.h {
 		return .Plus, true
+	}
+	if point.x >= layout.previous.x && point.x < layout.previous.x+layout.previous.w &&
+	   point.y >= layout.previous.y && point.y < layout.previous.y+layout.previous.h {
+		return .Previous, true
+	}
+	if point.x >= layout.next.x && point.x < layout.next.x+layout.next.w &&
+	   point.y >= layout.next.y && point.y < layout.next.y+layout.next.h {
+		return .Next, true
+	}
+	if point.x >= layout.animations.x && point.x < layout.animations.x+layout.animations.w &&
+	   point.y >= layout.animations.y && point.y < layout.animations.y+layout.animations.h {
+		return .Animations, true
 	}
 	if point.x >= layout.panel.x && point.x < layout.panel.x+layout.panel.w &&
 	   point.y >= layout.panel.y && point.y < layout.panel.y+layout.panel.h {
@@ -331,10 +420,15 @@ view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
+// view_trail_shown reports whether a column's trail is drawn: only beside a selected file.
+view_trail_shown :: proc(column: ^Column) -> bool {
+	return len(column.trail) > 0 && column.selected >= 0 && !column.entries[column.selected].is_dir
+}
+
 // view_draw_trail draws the folders above a selected file to the right of its column.
 view_draw_trail :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
 	column := &tree.columns[index]
-	if len(column.trail) == 0 || column.selected < 0 || column.entries[column.selected].is_dir {return}
+	if !view_trail_shown(column) {return}
 	longest := 0
 	for block in column.trail {
 		for entry in block.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
@@ -358,24 +452,24 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	for entry, row in column.entries {
 		row_top := column.y+f32(row)*tree.row_height
 		if row_top+tree.row_height < top || row_top > bottom {continue}
+		// Only the focused column's selection is highlighted; the selection in
+		// the others just keeps its name untruncated, the column being sized for it.
 		selected := row == column.selected
-		if selected {
-			draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTION_BG)
+		current := selected && index == tree.active
+		if current {
+			draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTED_ROW)
 		}
 		if path_list_contains(state.gather_paths, entry.path) {
 			view_draw_gather_marker(list, metrics, column.x-COLUMN_PAD+3, row_top, tree.row_height)
 		}
 		color := entry_color(entry.modified, state.now, entry.hidden)
-		max_width := f32(0)
-		if selected {
+		max_width := selected ? f32(0) : f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
+		if current {
 			color = COLOR_SELECTED
 		} else {
-			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 			if completing && entry.is_dir && name_has_prefix_fold(entry.name, state.input) {color = COLOR_SEARCH}
-		}
-		if state.clip_cut && path_list_contains(state.clip_paths, entry.path) {
-			color = COLOR_RED
+			if state.clip_cut && path_list_contains(state.clip_paths, entry.path) {color = COLOR_RED}
 		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
@@ -530,6 +624,17 @@ view_draw_settings :: proc(
 	if hot.settings_hot == .Plus {draw.solid(list, plus, COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, MINUS_LABEL, layout.minus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Minus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, PLUS_LABEL, layout.plus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Plus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	previous := view_rect_draw(layout.previous, metrics)
+	next := view_rect_draw(layout.next, metrics)
+	if hot.settings_hot == .Previous {draw.solid(list, previous, COLOR_TEXT, edge_softness = 0)}
+	if hot.settings_hot == .Next {draw.solid(list, next, COLOR_TEXT, edge_softness = 0)}
+	view_draw_text(text, list, fmt.tprintf("Terminal: %s", settings.terminal), left, layout.terminal_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, PREVIOUS_LABEL, layout.previous.x, layout.terminal_top, tree.row_height, tree.font_size, hot.settings_hot == .Previous ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, NEXT_LABEL, layout.next.x, layout.terminal_top, tree.row_height, tree.font_size, hot.settings_hot == .Next ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	toggle := view_rect_draw(layout.animations, metrics)
+	if hot.settings_hot == .Animations {draw.solid(list, toggle, COLOR_TEXT, edge_softness = 0)}
+	view_draw_text(text, list, "Animations", left, layout.animations_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, settings.animations_off ? "[off]" : "[on]", layout.animations.x, layout.animations_top, tree.row_height, tree.font_size, hot.settings_hot == .Animations ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 }
 

@@ -20,6 +20,12 @@ settings_panel_hit_testing_separates_backdrop_from_controls :: proc(t: ^testing.
 	testing.expect_value(t, hot, Settings_Hot.Minus)
 	hot, _ = view_settings_hot(layout, {layout.plus.x+layout.plus.w/2, layout.plus.y+layout.plus.h/2})
 	testing.expect_value(t, hot, Settings_Hot.Plus)
+	hot, _ = view_settings_hot(layout, {layout.previous.x+layout.previous.w/2, layout.previous.y+layout.previous.h/2})
+	testing.expect_value(t, hot, Settings_Hot.Previous)
+	hot, _ = view_settings_hot(layout, {layout.next.x+layout.next.w/2, layout.next.y+layout.next.h/2})
+	testing.expect_value(t, hot, Settings_Hot.Next)
+	hot, _ = view_settings_hot(layout, {layout.animations.x+layout.animations.w/2, layout.animations.y+layout.animations.h/2})
+	testing.expect_value(t, hot, Settings_Hot.Animations)
 }
 
 @(test)
@@ -53,4 +59,29 @@ settings_round_trip_and_keep_active_values_on_a_bad_file :: proc(t: ^testing.T) 
 	testing.expect(t, os.write_entire_file(SETTINGS_TEST_PATH, "not json") == nil)
 	testing.expect(t, !settings_load(SETTINGS_TEST_PATH, &settings))
 	testing.expect_value(t, settings.font_size, FONT_SIZE_MAX)
+}
+
+@(test)
+terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing.T) {
+	found := Terminals{names = {0 = "Ghostty", 1 = "Terminal"}, count = 2}
+	testing.expect_value(t, terminal_effective("", found), "Ghostty")
+	testing.expect_value(t, terminal_effective("", Terminals{}), TERMINAL_FALLBACK)
+	next, ok := terminal_step("", found, 1)
+	testing.expect(t, ok)
+	testing.expect_value(t, next, "Terminal")
+	previous, _ := terminal_step("Ghostty", found, -1)
+	testing.expect_value(t, previous, "Terminal")
+	custom, _ := terminal_step("Custom", found, 1)
+	testing.expect_value(t, custom, "Ghostty")
+	_, ok = terminal_step("", Terminals{}, 1)
+	testing.expect(t, !ok)
+
+	_ = os.remove(SETTINGS_TEST_PATH)
+	defer os.remove(SETTINGS_TEST_PATH)
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true}))
+	loaded := settings_defaults()
+	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &loaded))
+	defer delete(loaded.terminal)
+	testing.expect_value(t, loaded.terminal, "WezTerm")
+	testing.expect(t, loaded.animations_off)
 }

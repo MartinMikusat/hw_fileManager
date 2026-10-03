@@ -112,9 +112,10 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	tree: Tree
 	tree_init(&tree)
 	defer tree_destroy(&tree)
+	settings.terminal = terminal_effective(settings.terminal, terminals_detect())
 	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
 	_ = tree_set_font_size(&tree, f32(settings.font_size))
-	if !tree_open(&tree, directory) {return false}
+	if !tree_open(&tree, directory, grandparent = true) {return false}
 	if len(select_name) > 0 && !tree_select_name(&tree, tree.active, select_name) {return false}
 	gather_paths: [dynamic]string
 	defer gather_destroy(&gather_paths)
