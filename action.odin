@@ -90,6 +90,7 @@ action_clip :: proc(host: ^Host, cut: bool) {
 	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
 	host.clip_path = strings.clone(entry.path, context.allocator)
 	host.clip_cut = cut
+	devlog.succeeded(devlog.global(), {feature = "files", operation = "clip"}, {file_id = entry.name, stage = cut ? "cut" : "copy"})
 }
 
 action_paste :: proc(host: ^Host) {
@@ -97,47 +98,49 @@ action_paste :: proc(host: ^Host) {
 	directory, has_target := action_paste_directory(&host.tree)
 	if !has_target {return}
 	source := host.clip_path
+	site := devlog.Site{feature = "files", operation = "paste"}
+	stage := host.clip_cut ? "move" : "copy"
+	file_id := filepath.base(source)
 	if directory == source || strings.has_prefix(directory, strings.concatenate({source, "/"}, context.temp_allocator)) {
+		devlog.failed(devlog.global(), site, {reason = "folder cannot be pasted into itself", severity = .Info}, {file_id = file_id, stage = stage})
 		notice_set(host, "cannot paste a folder into itself")
 		return
 	}
-	if host.clip_cut {
-		if filepath.dir(source) == directory {
-			action_clear_clip(host)
-			return
-		}
-		destination, _ := filepath.join([]string{directory, filepath.base(source)}, context.temp_allocator)
-		if os.exists(destination) {
+	if host.clip_cut && filepath.dir(source) == directory {
+		action_clear_clip(host)
+		return
+	}
+	plain, _ := filepath.join([]string{directory, file_id}, context.temp_allocator)
+	destination := plain
+	if os.exists(plain) {
+		if host.clip_cut {
+			devlog.failed(devlog.global(), site, {reason = "destination name already exists", severity = .Info}, {file_id = file_id, stage = stage})
 			notice_set(host, "a file with that name already exists")
 			return
 		}
-		if move_error := os.rename(source, destination); move_error != nil {
-			devlog.failed(devlog.global(), {feature = "files", operation = "paste"}, {
-				reason = "file could not be moved",
-				detail = filepath.base(directory),
-				code = os_error_code(move_error),
-				severity = .Warning,
-			})
-			notice_set(host, "move failed")
-			return
-		}
-		action_clear_clip(host)
-		_ = tree_refresh(&host.tree)
-		return
+		// Finder keeps copied items on the clipboard and duplicates them with a
+		// " copy" suffix, including into the same folder.
+		destination = action_unique_destination(directory, file_id)
 	}
-	// Finder keeps copied items on the clipboard and duplicates them with a
-	// " copy" suffix, including into the same folder.
-	plain, _ := filepath.join([]string{directory, filepath.base(source)}, context.temp_allocator)
-	destination := plain
-	if os.exists(plain) {destination = action_unique_destination(directory, filepath.base(source))}
-	if !action_copy_path(source, destination) {
-		devlog.failed(devlog.global(), {feature = "files", operation = "paste"}, {
-			reason = "file could not be copied",
+	devlog.started(devlog.global(), site, {file_id = file_id, stage = stage})
+	paste_error: os.Error
+	if host.clip_cut {
+		paste_error = os.rename(source, destination)
+	} else {
+		paste_error = action_copy_path(source, destination)
+	}
+	if paste_error != nil {
+		devlog.failed(devlog.global(), site, {
+			reason = host.clip_cut ? "file could not be moved" : "file could not be copied",
+			detail = filepath.base(directory),
+			code = os_error_code(paste_error),
 			severity = .Warning,
-		})
-		notice_set(host, "copy failed")
+		}, {file_id = file_id, stage = stage})
+		notice_set(host, host.clip_cut ? "move failed" : "copy failed")
 		return
 	}
+	devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage})
+	if host.clip_cut {action_clear_clip(host)}
 	_ = tree_refresh(&host.tree)
 }
 
@@ -169,23 +172,23 @@ action_clear_clip :: proc(host: ^Host) {
 	host.clip_path = ""
 }
 
-action_copy_path :: proc(source, destination: string) -> bool {
+action_copy_path :: proc(source, destination: string) -> os.Error {
 	if os.is_dir(source) {
-		if os.make_directory_all(destination) != nil {return false}
+		if error := os.make_directory_all(destination); error != nil {return error}
 		handle, open_error := os.open(source)
-		if open_error != nil {return false}
+		if open_error != nil {return open_error}
 		defer os.close(handle)
 		infos, read_error := os.read_dir(handle, -1, context.temp_allocator)
-		if read_error != nil {return false}
+		if read_error != nil {return read_error}
 		defer os.file_info_slice_delete(infos, context.temp_allocator)
 		for info in infos {
 			if info.name == "." || info.name == ".." {continue}
 			child, _ := filepath.join([]string{destination, info.name}, context.temp_allocator)
-			if !action_copy_path(info.fullpath, child) {return false}
+			if error := action_copy_path(info.fullpath, child); error != nil {return error}
 		}
-		return true
+		return nil
 	}
 	data, read_error := os.read_entire_file(source, context.temp_allocator)
-	if read_error != nil {return false}
-	return os.write_entire_file(destination, data) == nil
+	if read_error != nil {return read_error}
+	return os.write_entire_file(destination, data)
 }
