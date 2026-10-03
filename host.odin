@@ -729,6 +729,8 @@ host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	host_update_hover(host_pointer_from_event(event))
 }
 
+WHEEL_ROWS_MAX :: 24
+
 host_scroll_wheel :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	if host.settings_open || host.edit_mode != .None {return}
@@ -745,8 +747,10 @@ host_scroll_wheel :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	rows := int(host.wheel_rows)
 	if rows == 0 {return}
 	host.wheel_rows -= f32(rows)
-	if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {
-		_ = host_select_index(host.tree.columns[host.tree.active].selected+rows)
+	// One row at a time, like the arrow keys, so it carries on into the neighbouring folder.
+	step := rows < 0 ? -1 : 1
+	for _ in 0 ..< min(abs(rows), WHEEL_ROWS_MAX) {
+		if !tree_move(&host.tree, step) {break}
 	}
 	host_request_frames(2)
 }
