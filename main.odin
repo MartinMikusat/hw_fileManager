@@ -27,7 +27,7 @@ main :: proc() {
 			devlog.failed(devlog.global(), {feature = "app", operation = "render_offscreen"}, {
 				reason = "offscreen render failed",
 			})
-			fmt.eprintln("usage: file_manager --offscreen <path.ppm> [--width=N] [--height=N] [--scale=N] [--path=DIR] [--font-size=N] [--settings]")
+			fmt.eprintln("usage: file_manager --offscreen <path.ppm> [--width=N] [--height=N] [--scale=N] [--path=DIR] [--select=NAME] [--font-size=N] [--settings]")
 			app_exit(2)
 		}
 		devlog.succeeded(devlog.global(), {feature = "app", operation = "render_offscreen"})

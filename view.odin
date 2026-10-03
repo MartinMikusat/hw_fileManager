@@ -37,6 +37,9 @@ View_State :: struct {
 	input:            string,
 	search_committed: bool,
 	cd_completing:    bool,
+	preview:          Preview_View,
+	preview_rect:     draw.Rect,
+	preview_shown:    bool,
 	input_editing:    bool,
 	input_caret:      int,
 	input_sel_start:  int,
@@ -527,6 +530,7 @@ view_draw :: proc(
 		view_draw_column(tree, list, text, index, metrics, state)
 		view_draw_trail(tree, list, text, index, metrics, state)
 	}
+	if state.preview_shown {view_draw_preview(tree, list, text, state.preview_rect, state.preview, metrics)}
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot)
 }

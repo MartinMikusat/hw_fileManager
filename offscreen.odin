@@ -41,6 +41,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	directory := ""
 	font_size := 0
 	settings_open := false
+	select_name := ""
 	for argument in arguments[1:] {
 		switch {
 		case strings.has_prefix(argument, "--width="):
@@ -61,6 +62,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			parsed, ok := strconv.parse_int(strings.trim_prefix(argument, "--font-size="))
 			if !ok || parsed <= 0 {return false}
 			font_size = parsed
+		case strings.has_prefix(argument, "--select="):
+			select_name = strings.trim_prefix(argument, "--select=")
 		case argument == "--settings":
 			settings_open = true
 		case:
@@ -104,6 +107,9 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
 	_ = tree_set_font_size(&tree, f32(settings.font_size))
 	if !tree_open(&tree, directory) {return false}
+	if len(select_name) > 0 && !tree_select_name(&tree, tree.active, select_name) {return false}
+	preview: Preview
+	defer preview_clear(&preview)
 
 	pixel_width := int(f32(width)*scale)
 	pixel_height := int(f32(height)*scale)
@@ -125,8 +131,13 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		coretext.begin_frame(&text, scale, metal.atlas_io(&renderer))
 		metrics.char_advance = measure_char_advance(&text, tree.font_size)
 		draw.list_reset(&list)
+		preview_update(&preview, &tree, device)
 		for !view_layout(&tree, metrics) {}
+		preview_rect, preview_shown := view_preview_rect(&tree, metrics)
 		view_draw(&tree, &list, &text, metrics, View_State{
+			preview = preview_view_make(&preview, &renderer, scale),
+			preview_rect = preview_rect,
+			preview_shown = preview_shown && preview.kind != .None,
 			settings = settings,
 			settings_open = settings_open,
 			hot = Hot_State{control = -1},

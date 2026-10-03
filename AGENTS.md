@@ -24,7 +24,7 @@ kind. Source lives at the repository root (`package file_manager`).
   full paths in a record.
 - A feature is a file-name prefix in this one package. Keep files small and cohesive.
 - Interface verification is the operator's. Use
-  `file_manager --offscreen <path.ppm> [--path=DIR] [--font-size=N] [--settings]` for
+  `file_manager --offscreen <path.ppm> [--path=DIR] [--select=NAME] [--font-size=N] [--settings]` for
   headless structural checks
   instead of launching the app.
 - Trial rule (remove once evaluated): start each task with the hw_harness

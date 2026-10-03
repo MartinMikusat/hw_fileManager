@@ -69,6 +69,9 @@ Host :: struct {
 	notice:         [NOTICE_MAX]u8,
 	notice_len:     int,
 	notice_until_ms: i64,
+	preview:        Preview,
+	preview_rect:   draw.Rect,
+	preview_shown:  bool,
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	frames_pending: int,
@@ -301,6 +304,7 @@ host_shutdown :: proc() {
 	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
 	edit_cancel(&host)
 	input_destroy(&host)
+	preview_clear(&host.preview)
 	text_input.destroy(&host.text_state)
 	macos.display_link_stop(&host.display_link)
 	tree_destroy(&host.tree)
@@ -383,7 +387,11 @@ host_render :: proc() {
 	}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
+	preview_update(&host.preview, &host.tree, host.device)
 	if !view_layout(&host.tree, metrics, edit) {host_request_frames(1)}
+	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
+	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
+	host.preview_shown = host.preview_shown && host.preview.kind != .None
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host.settings,
 		settings_open = host.settings_open,
@@ -402,6 +410,9 @@ host_render :: proc() {
 		input_sel_end = input_sel_end,
 		search_committed = host.search_committed,
 		cd_completing = host.cd_completing,
+		preview = preview_view,
+		preview_rect = host.preview_rect,
+		preview_shown = host.preview_shown,
 		clip_path = host.clip_path,
 		clip_cut = host.clip_cut,
 		edit = edit,
@@ -539,6 +550,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		row_height = host.tree.row_height,
 		bar_height = 2*host.tree.row_height,
 	}
+	if host.preview_shown && point.x >= host.preview_rect.x && point.x < host.preview_rect.x+host.preview_rect.w && point.y >= host.preview_rect.y && point.y < host.preview_rect.y+host.preview_rect.h {return}
 	if host.edit_mode != .None {
 		edit_commit(&host)
 		host_request_frames(2)
