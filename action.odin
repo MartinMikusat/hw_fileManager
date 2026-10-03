@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:unicode/utf8"
 import devlog "devlog:."
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
@@ -37,7 +38,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Trash:   return shift ? "[⇧7 Delete]" : "[7 Trash]"
 	case .Clear:   return GATHER_CLEAR_LABEL
 	case .Terminal: return "[9 Terminal]"
-	case .Refresh: return "[Refresh]"
+	case .Refresh: return "[⌘R Refresh]"
 	}
 	return ""
 }
@@ -107,7 +108,7 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 		x += width+ACTION_GAP_CELLS*metrics.char_advance
 	}
 	// Shortcuts that already have a key sit at the right edge, without a number.
-	refresh_width := f32(len(action_label(.Refresh)))*metrics.char_advance
+	refresh_width := f32(utf8.rune_count_in_string(action_label(.Refresh)))*metrics.char_advance
 	bar.kinds[bar.count] = .Refresh
 	bar.rects[bar.count] = {metrics.width-COLUMN_PAD-refresh_width, top, refresh_width, metrics.row_height}
 	bar.count += 1
