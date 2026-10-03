@@ -368,6 +368,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
 		if !inside {
 			host.settings_open = false
+			host_request_frames(2)
 		} else if hot == .Minus {
 			host_settings_adjust(-1)
 		} else if hot == .Plus {
