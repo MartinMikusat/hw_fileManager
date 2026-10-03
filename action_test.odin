@@ -37,6 +37,43 @@ action_cut_then_paste_moves_the_file :: proc(t: ^testing.T) {
 }
 
 @(test)
+action_paste_targets_the_selected_folder_without_entering_it :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer action_clear_clip(&host)
+	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
+	testing.expect(t, tree_move(&host.tree, 1))
+
+	action_clip(&host, true)
+	testing.expect(t, tree_select_name(&host.tree, 0, "beta"))
+	action_paste(&host)
+	testing.expect(t, os.exists(action_fixture_path("beta", "one.txt")))
+	testing.expect(t, !os.exists(action_fixture_path("alpha", "one.txt")))
+}
+
+@(test)
+action_paste_refuses_a_folder_inside_itself :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer action_clear_clip(&host)
+	testing.expect(t, tree_open(&host.tree, TREE_FIXTURE_ROOT))
+	testing.expect(t, tree_select_name(&host.tree, host.tree.active, "alpha"))
+
+	action_clip(&host, false)
+	action_paste(&host)
+	testing.expect(t, !os.exists(action_fixture_path("alpha", "alpha")))
+	testing.expect(t, !os.exists(action_fixture_path("alpha", "alpha copy")))
+}
+
+@(test)
 action_copy_then_paste_duplicates_the_file :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()

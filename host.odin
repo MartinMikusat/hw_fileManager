@@ -472,6 +472,7 @@ host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 		return
 	}
 	host_render()
+	free_all(context.temp_allocator)
 	host.frames_pending -= 1
 	if host.frames_pending <= 0 {macos.display_link_set_paused(&host.display_link, true)}
 }

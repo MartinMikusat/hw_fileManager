@@ -94,9 +94,13 @@ action_clip :: proc(host: ^Host, cut: bool) {
 
 action_paste :: proc(host: ^Host) {
 	if len(host.clip_path) == 0 {return}
-	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return}
-	directory := host.tree.columns[host.tree.active].dir
+	directory, has_target := action_paste_directory(&host.tree)
+	if !has_target {return}
 	source := host.clip_path
+	if directory == source || strings.has_prefix(directory, strings.concatenate({source, "/"}, context.temp_allocator)) {
+		notice_set(host, "cannot paste a folder into itself")
+		return
+	}
 	if host.clip_cut {
 		if filepath.dir(source) == directory {
 			action_clear_clip(host)
@@ -135,6 +139,14 @@ action_paste :: proc(host: ^Host) {
 		return
 	}
 	_ = tree_refresh(&host.tree)
+}
+
+// action_paste_directory is the folder shown at the right edge of the cascade: the
+// selected entry when it is a folder (its preview column), else the active column.
+action_paste_directory :: proc(tree: ^Tree) -> (string, bool) {
+	if tree.active < 0 || tree.active >= len(tree.columns) {return "", false}
+	if entry, ok := tree_selected_entry(tree); ok && entry.is_dir {return entry.path, true}
+	return tree.columns[tree.active].dir, true
 }
 
 // action_unique_destination mirrors Finder: "name copy.ext", then
