@@ -51,7 +51,6 @@ Host :: struct {
 	zoxide:         string,
 	input_value:    string,
 	input_mode:     Input_Mode,
-	search_index:   int,
 	search_committed: bool,
 	history:        [HISTORY_MAX]string,
 	history_count:  int,
@@ -282,6 +281,10 @@ host_request_frames :: proc(count: int) {
 	if !host.initialized {return}
 	host.frames_pending = max(host.frames_pending, count)
 	if host.display_link.paused {macos.display_link_set_paused(&host.display_link, false)}
+}
+
+host_search_bounds :: proc(host: ^Host) -> (view_top, view_bottom: f32) {
+	return CHROME_HEIGHT, host.view_height-2*host.tree.row_height
 }
 
 host_render :: proc() {

@@ -25,7 +25,6 @@ input_reset :: proc(host: ^Host) {
 	if len(host.input_value) > 0 {delete(host.input_value, context.allocator)}
 	host.input_value = ""
 	host.input_mode = .None
-	host.search_index = 0
 	host.search_committed = false
 	host.history_index = -1
 	host.cd_completing = false

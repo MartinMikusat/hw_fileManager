@@ -325,12 +325,15 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 }
 
 view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, blocks: []Block, x, top, bottom: f32, metrics: View_Metrics, state: View_State) {
+	searching := state.input_mode == .Search && len(state.input) > 0
 	for block in blocks {
 		for entry, row in block.entries {
 			row_top := block.y+f32(row)*tree.row_height
 			if row_top+tree.row_height < top || row_top > bottom {continue}
 			max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
-			view_draw_text(text, list, entry.name, x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, entry_color(entry.modified, state.now, entry.hidden), metrics.height, max_width)
+			color := entry_color(entry.modified, state.now, entry.hidden)
+			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
+			view_draw_text(text, list, entry.name, x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 		}
 	}
 }
@@ -469,12 +472,12 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 			break
 		}
 		if state.search_committed {
-			current, total := search_progress(tree, state.input)
+			view_top, view_bottom := CHROME_HEIGHT, metrics.height-metrics.bar_height
+			current, total := search_progress(tree, state.input, view_top, view_bottom)
 			view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
 			break
 		}
-		total := 0
-		if tree.active >= 0 && tree.active < len(tree.columns) {total = search_match_count(&tree.columns[tree.active], state.input)}
+		_, total := search_progress(tree, state.input, CHROME_HEIGHT, metrics.height-metrics.bar_height)
 		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true, 1+state.input_caret, 1+state.input_sel_start, 1+state.input_sel_end)
 	case .None:
 		if len(state.notice) > 0 {
