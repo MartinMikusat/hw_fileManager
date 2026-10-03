@@ -234,8 +234,6 @@ view_draw_controls :: proc(list: ^draw.List, metrics: View_Metrics, hot: Hot_Sta
 }
 
 view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, hot: Hot_State) {
-	draw.solid(list, {0, metrics.height-CHROME_HEIGHT, metrics.width, CHROME_HEIGHT}, COLOR_CHROME, edge_softness = 0)
-	draw.solid(list, {0, metrics.height-CHROME_HEIGHT-1, metrics.width, 1}, COLOR_CHROME_EDGE, edge_softness = 0)
 	view_draw_controls(list, metrics, hot)
 	settings := view_settings_control_rect(metrics)
 	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
@@ -298,8 +296,7 @@ view_draw_settings :: proc(
 	layout := view_settings_layout(tree, metrics)
 	draw.solid(list, {0, 0, metrics.width, metrics.height}, COLOR_MODAL_BACKDROP, edge_softness = 0)
 	panel := view_rect_draw(layout.panel, metrics)
-	draw.solid(list, panel, COLOR_TEXT, edge_softness = 0)
-	draw.solid(list, {panel.x+1, panel.y+1, max(panel.w-2, 0), max(panel.h-2, 0)}, COLOR_BACKGROUND, edge_softness = 0)
+	draw.solid(list, panel, COLOR_BACKGROUND, edge_softness = 0)
 	left := layout.panel.x+2*metrics.char_advance
 	view_draw_text(text, list, "Settings", left, layout.title_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
 	label := fmt.tprintf("Font size: %d", settings.font_size)

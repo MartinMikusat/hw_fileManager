@@ -17,8 +17,6 @@ CONTROL_CELLS :: f32(3)
 CONTROL_STRIDE_CELLS :: f32(4)
 
 COLOR_BACKGROUND    :: draw.Color{0.043, 0.043, 0.051, 1.0}
-COLOR_CHROME        :: draw.Color{0.078, 0.078, 0.090, 1.0}
-COLOR_CHROME_EDGE   :: draw.Color{0.153, 0.153, 0.176, 1.0}
 COLOR_TEXT          :: draw.Color{0.855, 0.855, 0.871, 1.0}
 COLOR_DIM           :: draw.Color{0.510, 0.510, 0.541, 1.0}
 COLOR_DIRECTORY     :: draw.Color{0.914, 0.643, 0.243, 1.0}
