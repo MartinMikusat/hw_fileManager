@@ -4,6 +4,8 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
+import "core:strings"
 import "core:time"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
@@ -244,8 +246,20 @@ host_initialize :: proc() -> bool {
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
-	if len(start) == 0 {start = home_directory()}
-	if !tree_open(&host.tree, start) {
+	if len(start) > 0 {
+		if !tree_open(&host.tree, start) && !host_open_home() {return false}
+	} else if !host_restore_place() && !host_open_home() {
+		return false
+	}
+	host.initialized = true
+	host.window->makeKeyAndOrderFront(nil)
+	host.app->activateIgnoringOtherApps(true)
+	host_request_frames(3)
+	return true
+}
+
+host_open_home :: proc() -> bool {
+	if !tree_open(&host.tree, home_directory()) {
 		if !tree_open(&host.tree, "/") {
 			fmt.eprintln("[hw_fileManager] no readable starting directory")
 			host_failure("no readable starting directory", .Critical)
@@ -253,11 +267,33 @@ host_initialize :: proc() -> bool {
 		}
 		devlog.recovered(devlog.global(), {feature = "files", operation = "open_starting_directory"})
 	}
-	host.initialized = true
-	host.window->makeKeyAndOrderFront(nil)
-	host.app->activateIgnoringOtherApps(true)
-	host_request_frames(3)
 	return true
+}
+
+// host_restore_place reopens the last selected path; it reports false when
+// there is none or it no longer exists, so the caller starts at the usual place.
+host_restore_place :: proc() -> bool {
+	place := host.settings.place
+	if len(place) == 0 || !path_taken(place) {return false}
+	if !tree_open(&host.tree, filepath.dir(place)) {return false}
+	_ = tree_select_name(&host.tree, host.tree.active, filepath.base(place))
+	return true
+}
+
+// host_remember_place stores the selected path (or the active folder) so the next
+// start resumes there, saving only when it changed.
+host_remember_place :: proc() {
+	place := ""
+	if entry, ok := tree_selected_entry(&host.tree); ok {
+		place = entry.path
+	} else if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {
+		place = host.tree.columns[host.tree.active].dir
+	}
+	if len(place) == 0 || place == host.settings.place {return}
+	delete(host.settings.place)
+	host.settings.place = strings.clone(place)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 }
 
 host_shutdown :: proc() {
@@ -481,6 +517,7 @@ host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 		return
 	}
 	host_render()
+	host_remember_place()
 	free_all(context.temp_allocator)
 	host.frames_pending -= 1
 	if host.frames_pending <= 0 {macos.display_link_set_paused(&host.display_link, true)}

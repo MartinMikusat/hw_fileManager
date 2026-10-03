@@ -39,8 +39,10 @@ settings_round_trip_and_keep_active_values_on_a_bad_file :: proc(t: ^testing.T) 
 	testing.expect(t, !settings_load(SETTINGS_TEST_PATH, &settings))
 	testing.expect_value(t, settings.font_size, DEFAULT_FONT_SIZE)
 
-	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 20, window = {10, 20, 800, 600}}))
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 20, window = {10, 20, 800, 600}, place = "/tmp/place"}))
 	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &settings))
+	defer delete(settings.place)
+	testing.expect_value(t, settings.place, "/tmp/place")
 	testing.expect_value(t, settings.font_size, 20)
 	testing.expect_value(t, settings.window, Window_Frame{10, 20, 800, 600})
 

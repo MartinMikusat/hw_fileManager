@@ -9,6 +9,8 @@ import devlog "devlog:."
 Settings :: struct {
 	font_size: int,
 	window:    Window_Frame,
+	// Last selected path, owned; reopened on the next start while it exists.
+	place:     string,
 }
 
 Window_Frame :: struct {
@@ -22,6 +24,7 @@ Settings_Document :: struct {
 	window_y:      f32 `json:"window_y"`,
 	window_width:  f32 `json:"window_width"`,
 	window_height: f32 `json:"window_height"`,
+	place:         string `json:"place"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -67,6 +70,10 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 	if document.window_width > 0 && document.window_height > 0 {
 		settings.window = {document.window_x, document.window_y, document.window_width, document.window_height}
 	}
+	if len(document.place) > 0 {
+		delete(settings.place)
+		settings.place = document.place
+	}
 	devlog.succeeded(devlog.global(), site)
 	return true
 }
@@ -80,6 +87,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		window_y = settings.window.y,
 		window_width = settings.window.w,
 		window_height = settings.window.h,
+		place = settings.place,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {
