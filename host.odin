@@ -592,7 +592,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 				switch {
 				case text[0] == '/' && host.input_mode != .Search:
 					search_begin(&host)
-				case text[0] >= '1' && text[0] <= '4' && host.input_mode == .None:
+				case text[0] >= '1' && text[0] <= '5' && host.input_mode == .None:
 					// Numbered action shortcuts are handled in the switch below.
 				case host.input_mode == .Search && host.search_committed:
 					// n/N are navigation and are handled below.
@@ -640,7 +640,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
-	case key == 18, key == 19, key == 20, key == 21:
+	case key == 18, key == 19, key == 20, key == 21, key == 23:
 		if host.input_mode == .None {
 			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind)}
 		}
