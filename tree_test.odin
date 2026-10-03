@@ -103,19 +103,19 @@ tree_navigation_cascades_and_collapses :: proc(t: ^testing.T) {
 	testing.expect_value(t, tree.active, 1)
 	testing.expect_value(t, tree.columns[1].entries[tree.columns[1].selected].name, "one.txt")
 
-	// Selecting a directory cascades into it immediately.
+	// Selecting a directory previews it immediately but keeps the focus here;
+	// the right arrow enters the preview.
 	testing.expect(t, tree_move(&tree, -1))
 	testing.expect_value(t, tree.columns[1].entries[tree.columns[1].selected].name, "nested")
 	testing.expect_value(t, len(tree.columns), 3)
+	testing.expect_value(t, tree.active, 1)
+
+	testing.expect(t, tree_expand(&tree))
 	testing.expect_value(t, tree.active, 2)
 
 	testing.expect(t, tree_collapse(&tree))
 	testing.expect_value(t, len(tree.columns), 2)
 	testing.expect_value(t, tree.active, 1)
-
-	testing.expect(t, tree_expand(&tree))
-	testing.expect_value(t, len(tree.columns), 3)
-	testing.expect_value(t, tree.active, 2)
 
 	// Selecting a file drops every deeper column.
 	testing.expect(t, tree_select(&tree, 1, 1))

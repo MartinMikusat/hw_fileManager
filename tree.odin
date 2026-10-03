@@ -143,7 +143,10 @@ tree_refresh :: proc(tree: ^Tree) -> bool {
 	return true
 }
 
-tree_select :: proc(tree: ^Tree, column_index, entry_index: int) -> bool {
+// tree_select previews the selected directory in the column to its right. enter
+// moves the focus into that preview (the right arrow and clicks); up/down and
+// Home/End keep the focus on the column being navigated.
+tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) -> bool {
 	if column_index < 0 || column_index >= len(tree.columns) {return false}
 	column := &tree.columns[column_index]
 	if entry_index < 0 || entry_index >= len(column.entries) {return false}
@@ -157,7 +160,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int) -> bool {
 	}
 	if column_index+1 < len(tree.columns) && tree.columns[column_index+1].dir == entry.path {
 		tree_truncate(tree, column_index+2)
-		tree.active = column_index+1
+		tree.active = enter ? column_index+1 : column_index
 		tree_ensure_visible(tree, column_index)
 		tree_ensure_visible(tree, column_index+1)
 		return true
@@ -170,7 +173,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int) -> bool {
 		return false
 	}
 	append(&tree.columns, child)
-	tree.active = column_index+1
+	tree.active = enter ? column_index+1 : column_index
 	tree_ensure_visible(tree, column_index)
 	tree_ensure_visible(tree, column_index+1)
 	return true
@@ -182,7 +185,7 @@ tree_move :: proc(tree: ^Tree, delta: int) -> bool {
 	if len(column.entries) == 0 {return false}
 	next := clamp(column.selected+delta, 0, len(column.entries)-1)
 	if next == column.selected {return false}
-	return tree_select(tree, tree.active, next)
+	return tree_select(tree, tree.active, next, enter = false)
 }
 
 tree_expand :: proc(tree: ^Tree) -> bool {

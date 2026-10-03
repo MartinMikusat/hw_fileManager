@@ -446,7 +446,7 @@ host_select_index :: proc(index: int) -> bool {
 	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
 	count := len(host.tree.columns[host.tree.active].entries)
 	if count == 0 {return false}
-	return tree_select(&host.tree, host.tree.active, clamp(index, 0, count-1))
+	return tree_select(&host.tree, host.tree.active, clamp(index, 0, count-1), enter = false)
 }
 
 host_select_end :: proc() -> bool {
