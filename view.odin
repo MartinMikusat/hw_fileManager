@@ -67,7 +67,7 @@ View_State :: struct {
 	now:              time.Time,
 }
 
-SETTINGS_LABEL :: "[Settings]"
+SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
 PREVIOUS_LABEL :: "[<]"
@@ -246,6 +246,15 @@ view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}, dt 
 	return complete
 }
 
+// label_cells is the width of a label in character cells. Symbols such as ⌘ and ⇧
+// come from a fallback font and are about 1.8 cells wide, so counting them as one
+// would run text past the edge it was aligned to.
+label_cells :: proc(label: string) -> f32 {
+	cells := f32(0)
+	for character in label {cells += character < 0x2000 ? 1 : 1.8}
+	return cells
+}
+
 // view_rect_draw flips a top-origin rect into the bottom-origin space the draw
 // list renders in. Chrome controls are the only rects kept bottom-origin.
 view_rect_draw :: proc(rect: draw.Rect, metrics: View_Metrics) -> draw.Rect {
@@ -274,7 +283,7 @@ view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
 
 view_settings_control_rect :: proc(metrics: View_Metrics) -> draw.Rect {
 	height := min(metrics.row_height, CHROME_HEIGHT)
-	width := f32(len(SETTINGS_LABEL))*metrics.char_advance
+	width := label_cells(SETTINGS_LABEL)*metrics.char_advance
 	strip := (CONTROL_INSET_CELLS+3*CONTROL_CELLS)*metrics.char_advance
 	x := metrics.width-strip-metrics.char_advance-width
 	y := (CHROME_HEIGHT-height)/2

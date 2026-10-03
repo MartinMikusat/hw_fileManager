@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "core:unicode/utf8"
 import devlog "devlog:."
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
@@ -107,14 +106,14 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 	x := COLUMN_PAD
 	for kind in ACTION_BAR_ORDER {
 		if kind == .Trash && !gathered {continue}
-		width := f32(len(action_label(kind, ungather, shift)))*metrics.char_advance
+		width := label_cells(action_label(kind, ungather, shift))*metrics.char_advance
 		bar.kinds[bar.count] = kind
 		bar.rects[bar.count] = {x, top, width, metrics.row_height}
 		bar.count += 1
 		x += width+ACTION_GAP_CELLS*metrics.char_advance
 	}
 	// Shortcuts that already have a key sit at the right edge, without a number.
-	refresh_width := f32(utf8.rune_count_in_string(action_label(.Refresh)))*metrics.char_advance
+	refresh_width := label_cells(action_label(.Refresh))*metrics.char_advance
 	bar.kinds[bar.count] = .Refresh
 	bar.rects[bar.count] = {metrics.width-COLUMN_PAD-refresh_width, top, refresh_width, metrics.row_height}
 	bar.count += 1
