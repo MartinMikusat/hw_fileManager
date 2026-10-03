@@ -167,3 +167,22 @@ trail_aligns_the_nearest_folder_end_with_its_row :: proc(t: ^testing.T) {
 	testing.expect_value(t, last_row_y, column.y+f32(nearest.row)*tree.row_height)
 	testing.expect(t, column.trail[1].y < nearest.y)
 }
+
+@(test)
+tree_refresh_drops_the_column_of_a_deleted_directory :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer gather_destroy(&host.gather_paths)
+	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
+	testing.expect_value(t, len(host.tree.columns), 2)
+
+	gather_add(&host.gather_paths, action_fixture_path("alpha"))
+	action_delete(&host)
+	testing.expect(t, !os.exists(action_fixture_path("alpha")))
+	testing.expect_value(t, len(host.tree.columns), 1)
+	testing.expect_value(t, host.tree.active, 0)
+}

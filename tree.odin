@@ -139,7 +139,13 @@ tree_refresh :: proc(tree: ^Tree) -> bool {
 		}
 	}
 	for directory, index in directories {
-		if !column_load(&tree.columns[index], directory, tree.allocator) {return false}
+		if !column_load(&tree.columns[index], directory, tree.allocator) {
+			// A trashed or deleted folder leaves a column with no directory: drop it
+			// and the columns that hang off it instead of keeping stale rows.
+			if index == 0 {return false}
+			tree_truncate(tree, index)
+			return true
+		}
 		column := &tree.columns[index]
 		for entry, entry_index in column.entries {
 			if entry.path == selected[index] {
