@@ -24,6 +24,8 @@ Language :: enum {
 	Script,
 	Css,
 	Markup,
+	Shell,
+	Markdown,
 }
 
 highlight_language :: proc(name: string) -> Language {
@@ -38,6 +40,10 @@ highlight_language :: proc(name: string) -> Language {
 		return .Css
 	case ".html", ".htm", ".xml", ".svg", ".plist":
 		return .Markup
+	case ".sh", ".bash", ".zsh":
+		return .Shell
+	case ".md", ".markdown":
+		return .Markdown
 	}
 	return .None
 }
@@ -48,6 +54,11 @@ SCRIPT_KEYWORDS :: []string{
 	"in", "instanceof", "interface", "let", "new", "null", "of", "private", "protected", "public", "readonly",
 	"return", "static", "super", "switch", "this", "throw", "true", "try", "type", "typeof", "undefined", "var",
 	"void", "while", "with", "yield",
+}
+
+SHELL_KEYWORDS :: []string{
+	"case", "do", "done", "elif", "else", "esac", "exit", "export", "fi", "for", "function", "if", "in", "local",
+	"read", "return", "select", "set", "shift", "then", "unset", "until", "while", "break", "continue", "source",
 }
 
 ODIN_BUILTIN_TYPES :: []string{
@@ -68,6 +79,8 @@ highlight_kinds :: proc(language: Language, text: string, allocator := context.a
 	case .Script: highlight_script(text, kinds)
 	case .Css:    highlight_css(text, kinds)
 	case .Markup: highlight_markup(text, kinds)
+	case .Shell:  highlight_shell(text, kinds)
+	case .Markdown: highlight_markdown(text, kinds)
 	}
 	return kinds
 }
@@ -325,5 +338,143 @@ highlight_markup :: proc(text: string, kinds: []Syntax_Kind) {
 			highlight_paint(kinds, index, index+1, .Tag)
 			index += 1
 		}
+	}
+}
+
+highlight_shell :: proc(text: string, kinds: []Syntax_Kind) {
+	index := 0
+	for index < len(text) {
+		value := text[index]
+		blank_before := index == 0 || text[index-1] == ' ' || text[index-1] == '\n' || text[index-1] == ';'
+		switch {
+		case value == '#' && blank_before:
+			end := len(text)
+			if newline := strings.index_byte(text[index:], '\n'); newline >= 0 {end = index+newline}
+			kind := Syntax_Kind.Comment
+			if index == 0 && strings.has_prefix(text, "#!") {kind = .Directive}
+			highlight_paint(kinds, index, end, kind)
+			index = end
+		case value == '"':
+			end := highlight_string_end(text, index, true)
+			highlight_paint(kinds, index, end, .String)
+			// Expansions stay visible inside double quotes.
+			for position := index; position < end; position += 1 {
+				if text[position] == '$' {
+					variable_end := highlight_shell_variable_end(text, position)
+					highlight_paint(kinds, position, min(variable_end, end), .Directive)
+					position = variable_end-1
+				}
+			}
+			index = end
+		case value == '\'':
+			end := len(text)
+			if close := strings.index_byte(text[index+1:], '\''); close >= 0 {end = index+1+close+1}
+			highlight_paint(kinds, index, end, .String)
+			index = end
+		case value == '$':
+			end := highlight_shell_variable_end(text, index)
+			highlight_paint(kinds, index, end, .Directive)
+			index = max(end, index+1)
+		case highlight_is_digit(value) && blank_before:
+			end := highlight_number_end(text, index)
+			highlight_paint(kinds, index, end, .Number)
+			index = end
+		case highlight_is_ident_start(value):
+			end := index
+			for end < len(text) && (highlight_is_ident(text[end]) || text[end] == '-') {end += 1}
+			word := text[index:end]
+			switch {
+			case highlight_contains(SHELL_KEYWORDS, word):
+				highlight_paint(kinds, index, end, .Keyword)
+			case strings.has_prefix(text[end:], "()"):
+				highlight_paint(kinds, index, end, .Function)
+			}
+			index = end
+		case:
+			index += 1
+		}
+	}
+}
+
+// highlight_shell_variable_end is the index after the $name, ${...} or $(...)
+// that starts at start.
+highlight_shell_variable_end :: proc(text: string, start: int) -> int {
+	index := start+1
+	if index >= len(text) {return index}
+	switch text[index] {
+	case '{':
+		if close := strings.index_byte(text[index:], '}'); close >= 0 {return index+close+1}
+		return len(text)
+	case '(':
+		return index+1
+	case '@', '*', '#', '?', '!', '$', '0' ..= '9':
+		return index+1
+	}
+	for index < len(text) && highlight_is_ident(text[index]) {index += 1}
+	return index
+}
+
+highlight_markdown :: proc(text: string, kinds: []Syntax_Kind) {
+	in_fence := false
+	line_start := 0
+	for line_start < len(text) {
+		line_end := len(text)
+		if newline := strings.index_byte(text[line_start:], '\n'); newline >= 0 {line_end = line_start+newline}
+		line := text[line_start:line_end]
+		trimmed := strings.trim_left(line, " ")
+		indent := len(line)-len(trimmed)
+		switch {
+		case strings.has_prefix(trimmed, "```") || strings.has_prefix(trimmed, "~~~"):
+			highlight_paint(kinds, line_start, line_end, .Comment)
+			in_fence = !in_fence
+		case in_fence:
+			highlight_paint(kinds, line_start, line_end, .String)
+		case strings.has_prefix(trimmed, "#"):
+			level := 0
+			for level < len(trimmed) && trimmed[level] == '#' {level += 1}
+			if level <= 6 && (level == len(trimmed) || trimmed[level] == ' ') {highlight_paint(kinds, line_start, line_end, .Keyword)}
+		case strings.has_prefix(trimmed, ">"):
+			highlight_paint(kinds, line_start, line_end, .Comment)
+		case strings.has_prefix(trimmed, "---") || strings.has_prefix(trimmed, "***"):
+			highlight_paint(kinds, line_start, line_end, .Comment)
+		case:
+			marker := 0
+			switch {
+			case len(trimmed) > 1 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') && trimmed[1] == ' ':
+				marker = 1
+			case len(trimmed) > 2 && highlight_is_digit(trimmed[0]):
+				digits := 0
+				for digits < len(trimmed) && highlight_is_digit(trimmed[digits]) {digits += 1}
+				if digits+1 < len(trimmed) && trimmed[digits] == '.' && trimmed[digits+1] == ' ' {marker = digits+1}
+			}
+			if marker > 0 {highlight_paint(kinds, line_start+indent, line_start+indent+marker, .Directive)}
+			highlight_markdown_inline(line, kinds[line_start:line_end])
+		}
+		line_start = line_end+1
+	}
+}
+
+// highlight_markdown_inline marks `code` spans and [text](target) links.
+highlight_markdown_inline :: proc(line: string, kinds: []Syntax_Kind) {
+	index := 0
+	for index < len(line) {
+		switch line[index] {
+		case '`':
+			if close := strings.index_byte(line[index+1:], '`'); close >= 0 {
+				highlight_paint(kinds, index, index+1+close+1, .String)
+				index += close+2
+				continue
+			}
+		case '[':
+			if close := strings.index(line[index:], "]("); close >= 0 {
+				if paren := strings.index_byte(line[index+close:], ')'); paren >= 0 {
+					highlight_paint(kinds, index, index+close+1, .Function)
+					highlight_paint(kinds, index+close+1, index+close+paren+1, .Comment)
+					index += close+paren+1
+					continue
+				}
+			}
+		}
+		index += 1
 	}
 }

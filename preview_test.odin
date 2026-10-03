@@ -49,3 +49,22 @@ highlight_classifies_odin_json_and_markup :: proc(t: ^testing.T) {
 	testing.expect_value(t, kinds[9], Syntax_Kind.String)
 	testing.expect_value(t, kinds[15], Syntax_Kind.Comment)
 }
+
+@(test)
+highlight_classifies_shell_and_markdown :: proc(t: ^testing.T) {
+	shell := "if [ -n \"$HOME\" ]; then # go\n  echo 'x'\nfi"
+	kinds := highlight_kinds(.Shell, shell, context.temp_allocator)
+	testing.expect_value(t, kinds[0], Syntax_Kind.Keyword)
+	testing.expect_value(t, kinds[10], Syntax_Kind.Directive)
+	testing.expect_value(t, kinds[26], Syntax_Kind.Comment)
+	testing.expect_value(t, kinds[37], Syntax_Kind.String)
+
+	markdown := "# Title\n- item with `code` and [a](b)\n```\nfn()\n```"
+	kinds = highlight_kinds(.Markdown, markdown, context.temp_allocator)
+	testing.expect_value(t, kinds[0], Syntax_Kind.Keyword)
+	testing.expect_value(t, kinds[8], Syntax_Kind.Directive)
+	testing.expect_value(t, kinds[20], Syntax_Kind.String)
+	testing.expect_value(t, kinds[32], Syntax_Kind.Function)
+	testing.expect_value(t, kinds[35], Syntax_Kind.Comment)
+	testing.expect_value(t, kinds[43], Syntax_Kind.String)
+}
