@@ -20,9 +20,9 @@ preview_scroll_to :: proc(host: ^Host, line: f32) {
 }
 
 // preview_focus_begin focuses the preview of the selected file; it reports false
-// when there is none to focus.
+// when there is none to focus or all of it already fits.
 preview_focus_begin :: proc(host: ^Host) -> bool {
-	if !preview_text_shown(host) {return false}
+	if !preview_text_shown(host) || len(host.preview.lines) <= preview_rows(host) {return false}
 	host.preview.focused = true
 	return true
 }

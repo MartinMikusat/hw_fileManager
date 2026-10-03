@@ -57,14 +57,18 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 			offset := int(uintptr(raw_data(line))-uintptr(raw_data(preview.text)))
 			view_draw_code_line(tree, list, text, line, preview.kinds[offset:offset+len(line)], area.x, area.y+(f32(index)-preview.scroll)*tree.row_height, columns, metrics)
 		}
+		// The line counter is the scroll cue: dim when everything fits, inverted when
+		// the file scrolls, red once the preview has the focus.
+		position := fmt.tprintf("%d/%d", min(first+1, len(preview.lines)), len(preview.lines))
+		width := f32(len(position)+2)*metrics.char_advance
+		bar := draw.Rect{area.x+area.w-width, area.y+area.h-tree.row_height, width, tree.row_height}
+		color := COLOR_DIM
 		if len(preview.lines) > rows {
-			position := fmt.tprintf("%d/%d", min(first+1, len(preview.lines)), len(preview.lines))
-			width := f32(len(position))*metrics.char_advance
-			view_draw_text(text, list, position, area.x+area.w-width, area.y+area.h-tree.row_height, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+			background := preview.focused ? COLOR_SELECTED_ROW : COLOR_TEXT
+			draw.solid(list, view_rect_draw(bar, metrics), background, edge_softness = 0)
+			color = preview.focused ? COLOR_SELECTED : COLOR_BACKGROUND
 		}
-		if preview.focused {
-			draw.solid(list, view_rect_draw({rect.x+rect.w-3, rect.y, 3, rect.h}, metrics), COLOR_SELECTED_ROW, edge_softness = 0)
-		}
+		view_draw_text(text, list, position, bar.x+metrics.char_advance, bar.y, bar.h, tree.font_size, color, metrics.height)
 	case .Image:
 		natural_w := f32(preview.width)/preview.scale
 		natural_h := f32(preview.height)/preview.scale
