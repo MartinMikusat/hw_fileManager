@@ -79,6 +79,7 @@ Host :: struct {
 	preview_shown:  bool,
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
+	shift_down:     bool,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -152,6 +153,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "flagsChanged:", rawptr(host_flags_changed), "v@:@") {return delegate, view_class, false}
 	NS.objc_registerClassPair(view_class)
 	return delegate, view_class, true
 }
@@ -388,7 +390,7 @@ host_render :: proc() {
 		switch {
 		case edit_conflict(&host):
 			edit.error = true
-			notice = "a file with that name already exists"
+			notice = "an item with that name already exists"
 			notice_error = true
 		case len(host.edit_value) > 0 && edit_invalid(host.edit_value):
 			edit.error = true
@@ -438,6 +440,7 @@ host_render :: proc() {
 		edit = edit,
 		notice = notice,
 		notice_error = notice_error,
+		shift = host.shift_down,
 		now = now,
 	})
 	coretext.flush(&host.text)
@@ -492,7 +495,7 @@ host_update_hover :: proc(point: ui.Vec2) {
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
 		gathered := len(host.gather_paths) > 0
-		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(&host)); inside && action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {
+		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(&host), host.shift_down); inside && action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
@@ -552,6 +555,16 @@ host_accepts_first :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
 
 host_should_terminate :: proc "c" (self: NS.id, cmd: NS.SEL, app: ^NS.Application) -> bool {return true}
 
+// flagsChanged tracks Shift so the action labels flip while it is held; no key
+// event arrives until another key is pressed.
+host_flags_changed :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	down := .Shift in event->modifierFlags()
+	if down == host.shift_down {return}
+	host.shift_down = down
+	host_request_frames(1)
+}
+
 host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 	context = runtime.default_context()
 	if host.frames_pending <= 0 {
@@ -576,6 +589,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	if host.view_width < 1 || host.view_height < 1 {return}
 	point := host_pointer_from_event(event)
+	host.shift_down = .Shift in event->modifierFlags()
 	metrics := View_Metrics{
 		width = host.view_width,
 		height = host.view_height,
@@ -633,7 +647,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if point.y >= host.view_height-host.tree.row_height {
-		if kind, inside := action_bar_at(metrics, point, len(host.gather_paths) > 0, action_current_gathered(&host)); inside {action_perform(&host, kind)}
+		if kind, inside := action_bar_at(metrics, point, len(host.gather_paths) > 0, action_current_gathered(&host), host.shift_down); inside {action_perform(&host, kind, host.shift_down)}
 		return
 	}
 	if point.y >= host.view_height-2*host.tree.row_height {
@@ -678,6 +692,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	control := .Control in event->modifierFlags()
 	option := .Option in event->modifierFlags()
 	shift := .Shift in event->modifierFlags()
+	host.shift_down = shift
 	key := uint(event->keyCode())
 	if host.settings_open {
 		switch {
@@ -712,7 +727,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 				switch {
 				case text[0] == '/' && host.input_mode == .None:
 					search_begin(&host)
-				case text[0] >= '1' && text[0] <= '8' && host.input_mode == .None:
+				case host.input_mode == .None && action_is_number_key(key):
 					// Numbered action shortcuts are handled in the switch below.
 				case host.input_mode == .None:
 					input_begin(&host, .Cd)
@@ -762,7 +777,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
 	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28:
 		if host.input_mode == .None {
-			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind)}
+			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind, shift)}
 		}
 	case key == 115:
 		_ = host_select_index(0)

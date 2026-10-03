@@ -110,6 +110,13 @@ trash_item :: proc(path: string) -> bool {
 	return bool(intrinsics.objc_send(NS.BOOL, manager, "trashItemAtURL:resultingItemURL:error:", url, NS.id(nil), NS.id(nil)))
 }
 
+// delete_item removes a file or folder tree for good; there is no undo. Odin's
+// remove_all only walks directories, so a plain file goes through remove.
+delete_item :: proc(path: string) -> bool {
+	if os.remove(path) == nil {return true}
+	return os.remove_all(path) == nil
+}
+
 // path_taken reports whether anything occupies the path, a dangling symlink
 // included.
 path_taken :: proc(path: string) -> bool {

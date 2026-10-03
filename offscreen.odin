@@ -42,6 +42,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	directory := ""
 	font_size := 0
 	settings_open := false
+	shift := false
 	select_name := ""
 	gather_names: [dynamic]string
 	defer delete(gather_names)
@@ -71,6 +72,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			append(&gather_names, strings.trim_prefix(argument, "--gather="))
 		case argument == "--settings":
 			settings_open = true
+		case argument == "--shift":
+			shift = true
 		case:
 			return false
 		}
@@ -158,6 +161,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			gather_hot_row = -1,
 			settings = settings,
 			settings_open = settings_open,
+			shift = shift,
 			hot = Hot_State{control = -1},
 			now = time.now(),
 		})

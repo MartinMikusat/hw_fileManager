@@ -14,6 +14,7 @@ Edit_Mode :: enum {
 	None,
 	Rename,
 	NewFile,
+	NewFolder,
 }
 
 View_Edit :: struct {
@@ -71,6 +72,15 @@ edit_invalid :: proc(name: string) -> bool {
 	return false
 }
 
+edit_stage :: proc(mode: Edit_Mode) -> string {
+	switch mode {
+	case .Rename:    return "rename"
+	case .NewFolder: return "new_folder"
+	case .NewFile, .None: return "new_file"
+	}
+	return "new_file"
+}
+
 // edit_target_directory is the folder the edit applies to. Rename uses the
 // selected entry's own parent so it can never diverge from the entry; New file
 // uses the active column.
@@ -115,7 +125,7 @@ edit_commit :: proc(host: ^Host) {
 		return
 	}
 	if edit_conflict(host) {
-		notice_set(host, "a file with that name already exists")
+		notice_set(host, "an item with that name already exists")
 		return
 	}
 	directory := edit_target_directory(host)
@@ -148,6 +158,8 @@ edit_commit :: proc(host: ^Host) {
 			os.close(file)
 			applied = true
 		}
+	case .NewFolder:
+		if make_error := os.make_directory(destination); make_error == nil {applied = true}
 	case .None:
 	}
 	if !applied {
@@ -160,7 +172,7 @@ edit_commit :: proc(host: ^Host) {
 		notice_set(host, "name could not be applied")
 		return
 	}
-	devlog.succeeded(devlog.global(), {feature = "files", operation = "edit_name"}, {file_id = name, stage = mode == .Rename ? "rename" : "new_file"})
+	devlog.succeeded(devlog.global(), {feature = "files", operation = "edit_name"}, {file_id = name, stage = edit_stage(mode)})
 	if mode == .Rename {
 		gather_remap(&host.gather_paths, original, destination)
 		gather_remap(&host.clip_paths, original, destination)

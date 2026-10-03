@@ -55,6 +55,7 @@ View_State :: struct {
 	edit:             View_Edit,
 	notice:           string,
 	notice_error:     bool,
+	shift:            bool,
 	now:              time.Time,
 }
 
@@ -442,17 +443,18 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 }
 
 view_draw_actions :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
-	bar := action_bar_layout(metrics, state.gathered, state.current_gathered)
+	bar := action_bar_layout(metrics, state.gathered, state.current_gathered, state.shift)
 	for index in 0 ..< bar.count {
 		kind := bar.kinds[index]
 		rect := bar.rects[index]
 		available := action_available(tree, state.gathered, len(state.clip_paths) > 0, kind)
 		color := available ? COLOR_TEXT : COLOR_DIM
+		if available && state.shift && kind == .Trash {color = COLOR_RED}
 		if available && state.hot.action_hot && state.hot.action == kind {
 			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
 			color = COLOR_BACKGROUND
 		}
-		view_draw_text(text, list, action_label(kind, state.current_gathered), rect.x, rect.y, rect.h, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, action_label(kind, state.current_gathered, state.shift), rect.x, rect.y, rect.h, tree.font_size, color, metrics.height)
 	}
 }
 

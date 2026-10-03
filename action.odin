@@ -29,15 +29,15 @@ action_bar_kinds :: proc(gathered: bool) -> []Action_Kind {
 	return ACTION_BAR_ORDER[:6]
 }
 
-action_label :: proc(kind: Action_Kind, ungather := false) -> string {
+action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
 	switch kind {
 	case .Copy:    return "[1 Copy]"
 	case .Cut:     return "[2 Cut]"
 	case .Paste:   return "[3 Paste]"
 	case .Rename:  return "[4 Rename]"
-	case .NewFile: return "[5 New File]"
+	case .NewFile: return shift ? "[⇧5 New Folder]" : "[5 New File]"
 	case .Gather:  return ungather ? "[6 Ungather]" : "[6 Gather]"
-	case .Trash:   return "[7 Trash]"
+	case .Trash:   return shift ? "[⇧7 Delete]" : "[7 Trash]"
 	case .Clear:   return GATHER_CLEAR_LABEL
 	}
 	return ""
@@ -55,6 +55,13 @@ action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	case 28: return .Clear, true
 	}
 	return .Copy, false
+}
+
+// action_is_number_key reports whether the key is a numbered shortcut; Shift
+// keeps the same key code, so this also covers the shifted chords.
+action_is_number_key :: proc(key: uint) -> bool {
+	_, ok := action_number_key_code(key)
+	return ok
 }
 
 action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kind) -> bool {
@@ -85,14 +92,14 @@ Action_Bar :: struct {
 }
 
 // action_bar_layout are top-origin rects in the bottom row of the bar.
-action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather: bool) -> Action_Bar {
+action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool) -> Action_Bar {
 	kinds := action_bar_kinds(gathered)
 	bar: Action_Bar
 	bar.count = len(kinds)
 	top := metrics.height-metrics.row_height
 	x := COLUMN_PAD
 	for kind, index in kinds {
-		width := f32(len(action_label(kind, ungather)))*metrics.char_advance
+		width := f32(len(action_label(kind, ungather, shift)))*metrics.char_advance
 		bar.kinds[index] = kind
 		bar.rects[index] = {x, top, width, metrics.row_height}
 		x += width+ACTION_GAP_CELLS*metrics.char_advance
@@ -100,10 +107,10 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather: bool) -> Ac
 	return bar
 }
 
-action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather: bool) -> (Action_Kind, bool) {
+action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather, shift: bool) -> (Action_Kind, bool) {
 	top := metrics.height-metrics.row_height
 	if point.y < top || point.y >= top+metrics.row_height {return .Copy, false}
-	bar := action_bar_layout(metrics, gathered, ungather)
+	bar := action_bar_layout(metrics, gathered, ungather, shift)
 	for index in 0 ..< bar.count {
 		rect := bar.rects[index]
 		if point.x >= rect.x && point.x < rect.x+rect.w {return bar.kinds[index], true}
@@ -116,7 +123,7 @@ action_current_gathered :: proc(host: ^Host) -> bool {
 	return ok && path_list_contains(host.gather_paths[:], entry.path)
 }
 
-action_perform :: proc(host: ^Host, kind: Action_Kind) {
+action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	gathered := len(host.gather_paths) > 0
 	if !action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {return}
 	switch kind {
@@ -124,9 +131,9 @@ action_perform :: proc(host: ^Host, kind: Action_Kind) {
 	case .Cut:     action_clip(host, true)
 	case .Paste:   action_paste(host)
 	case .Rename:  edit_begin(host, .Rename)
-	case .NewFile: edit_begin(host, .NewFile)
+	case .NewFile: edit_begin(host, shift ? .NewFolder : .NewFile)
 	case .Gather:  action_gather(host)
-	case .Trash:   action_trash(host)
+	case .Trash:   action_destroy(host, to_trash = !shift)
 	case .Clear:   gather_clear(&host.gather_paths)
 	}
 	host_request_frames(2)
@@ -237,26 +244,32 @@ action_paste :: proc(host: ^Host) {
 	_ = tree_refresh(&host.tree)
 }
 
-// action_trash moves the gathered set to the Trash. Items that go leave the
-// set; failures stay so a second press retries only those.
-action_trash :: proc(host: ^Host) {
+// action_destroy removes the gathered set, moving it to the Trash or deleting it
+// for good. Items that go leave the set; failures stay so a second press
+// retries only those.
+action_trash :: proc(host: ^Host) {action_destroy(host, to_trash = true)}
+
+action_delete :: proc(host: ^Host) {action_destroy(host, to_trash = false)}
+
+action_destroy :: proc(host: ^Host, to_trash: bool) {
 	_ = gather_prune(&host.gather_paths)
 	if len(host.gather_paths) == 0 {return}
-	site := devlog.Site{feature = "files", operation = "trash"}
+	site := devlog.Site{feature = "files", operation = to_trash ? "trash" : "delete"}
 	failures := 0
 	index := 0
 	for index < len(host.gather_paths) {
 		path := host.gather_paths[index]
-		if trash_item(path) {
-			devlog.succeeded(devlog.global(), site, {file_id = filepath.base(path), stage = "trash"})
+		gone := to_trash ? trash_item(path) : delete_item(path)
+		if gone {
+			devlog.succeeded(devlog.global(), site, {file_id = filepath.base(path), stage = to_trash ? "trash" : "delete"})
 			gather_remove(&host.gather_paths, path)
 			continue
 		}
-		devlog.failed(devlog.global(), site, {reason = "file could not be moved to the trash", severity = .Warning}, {file_id = filepath.base(path), stage = "trash"})
+		devlog.failed(devlog.global(), site, {reason = to_trash ? "file could not be moved to the trash" : "file could not be deleted", severity = .Warning}, {file_id = filepath.base(path), stage = to_trash ? "trash" : "delete"})
 		failures += 1
 		index += 1
 	}
-	if failures > 0 {notice_set(host, "some items could not be trashed")}
+	if failures > 0 {notice_set(host, to_trash ? "some items could not be trashed" : "some items could not be deleted")}
 	action_clip_prune(host)
 	_ = tree_refresh(&host.tree)
 }
