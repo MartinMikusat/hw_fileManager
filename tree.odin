@@ -19,6 +19,7 @@ Tree :: struct {
 	columns:         [dynamic]Column,
 	active:          int,
 	pan_x:           f32,
+	pan_y:           f32,
 	viewport_height: f32,
 	font_size:       f32,
 	row_height:      f32,
@@ -90,6 +91,7 @@ tree_truncate :: proc(tree: ^Tree, length: int) {
 tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 	tree_truncate(tree, 0)
 	tree.pan_x = 0
+	tree.pan_y = 0
 	parent := filepath.dir(directory)
 	if len(parent) == 0 || parent == directory {
 		root: Column

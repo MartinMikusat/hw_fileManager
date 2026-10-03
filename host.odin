@@ -83,6 +83,19 @@ host_add_method :: proc(class: NS.Class, name: cstring, imp: rawptr, types: cstr
 	return bool(NS.class_addMethod(class, NS.sel_registerName(name), auto_cast imp, types))
 }
 
+host_window_key :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
+
+// A window without a title bar cannot become key by default, so the first
+// responder never receives keyboard events unless it opts in.
+host_window_class :: proc() -> NS.Class {
+	class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSWindow"), "FileManagerWindow", 0)
+	if class == nil {return nil}
+	if !host_add_method(class, "canBecomeKeyWindow", rawptr(host_window_key), "B@:") {return nil}
+	if !host_add_method(class, "canBecomeMainWindow", rawptr(host_window_key), "B@:") {return nil}
+	NS.objc_registerClassPair(class)
+	return class
+}
+
 host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 	devlog.failed(devlog.global(), {feature = "presentation", operation = "window_host"}, {
 		reason = reason,
@@ -134,7 +147,13 @@ host_initialize :: proc() -> bool {
 	host.app->setDelegate((^NS.ApplicationDelegate)(delegate))
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
-	host.window = NS.Window.alloc()->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
+	window_class := host_window_class()
+	if window_class == nil {
+		host_failure("window class could not be registered", .Critical)
+		return false
+	}
+	host.window = (^NS.Window)(NS.class_createInstance(window_class, 0))
+	host.window = host.window->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
 	if host.window == nil {
 		host_failure("window could not be created", .Critical)
 		return false
@@ -415,17 +434,12 @@ host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 host_scroll :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	point := host_pointer_from_event(event)
-	delta_x := f32(event->scrollingDeltaX())
 	delta_y := f32(event->scrollingDeltaY())
-	pan := delta_x
-	if .Shift in event->modifierFlags() && pan == 0 {pan = delta_y}
-	if pan != 0 {
-		host.tree.pan_x += pan
-	} else if delta_y != 0 {
+	if delta_y != 0 {
 		column := tree_column_at(&host.tree, point.x)
 		if column >= 0 {tree_scroll_column(&host.tree, column, -delta_y)}
+		host_request_frames(1)
 	}
-	host_request_frames(1)
 }
 
 host_select_index :: proc(index: int) -> bool {

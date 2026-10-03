@@ -64,16 +64,6 @@ view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 	return max(f32(longest)*char_advance+2*COLUMN_PAD, MIN_COLUMN_WIDTH)
 }
 
-view_content_width :: proc(tree: ^Tree) -> f32 {
-	total := COLUMN_PAD
-	for column in tree.columns {total += column.width+COLUMN_GAP}
-	return total
-}
-
-view_min_pan :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
-	return min(metrics.width-view_content_width(tree), 0)
-}
-
 view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	for index in 0 ..< len(tree.columns) {
 		tree.columns[index].width = view_column_width(&tree.columns[index], metrics.char_advance)
@@ -82,36 +72,34 @@ view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 
 view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	x := COLUMN_PAD+tree.pan_x
+	y := CHROME_HEIGHT+COLUMN_PAD+tree.pan_y
 	for index in 0 ..< len(tree.columns) {
 		column := &tree.columns[index]
 		column.x = x
-		column.y = CHROME_HEIGHT+COLUMN_PAD
+		column.y = y
 		x += column.width+COLUMN_GAP
 	}
 }
 
-view_active_shift :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
-	if tree.active < 0 || tree.active >= len(tree.columns) {return 0}
+// view_center_pan pins the active selection to the viewport center: its column is
+// centered horizontally and its row sits on the middle line, so navigation
+// translates the rest of the cascade around it.
+view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
+	if tree.active < 0 || tree.active >= len(tree.columns) {return}
 	column := &tree.columns[tree.active]
-	limit := metrics.width-COLUMN_PAD
-	if right := column.x+column.width; right > limit {return limit-right}
-	if column.x < COLUMN_PAD {return COLUMN_PAD-column.x}
-	return 0
+	left := COLUMN_PAD
+	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
+	tree.pan_x = metrics.width/2-(left+column.width/2)
+	if column.selected < 0 {return}
+	row_center := CHROME_HEIGHT+COLUMN_PAD+f32(column.selected)*tree.row_height-column.scroll+tree.row_height/2
+	tree.pan_y = metrics.height/2-row_center
 }
 
 view_layout :: proc(tree: ^Tree, metrics: View_Metrics) {
-	if tree.viewport_height != metrics.height {
-		tree.viewport_height = metrics.height
-		for index in 0 ..< len(tree.columns) {tree_ensure_visible(tree, index)}
-	}
+	tree.viewport_height = metrics.height
 	view_measure_columns(tree, metrics)
-	tree.pan_x = clamp(tree.pan_x, view_min_pan(tree, metrics), 0)
+	view_center_pan(tree, metrics)
 	view_place_columns(tree, metrics)
-	shift := view_active_shift(tree, metrics)
-	if shift != 0 {
-		tree.pan_x = clamp(tree.pan_x+shift, view_min_pan(tree, metrics), 0)
-		view_place_columns(tree, metrics)
-	}
 }
 
 // view_rect_draw flips a top-origin rect into the bottom-origin space the draw
@@ -266,7 +254,7 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 
 view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics) {
 	column := &tree.columns[index]
-	top := column.y
+	top := CHROME_HEIGHT+COLUMN_PAD
 	bottom := max(metrics.height-COLUMN_PAD, top+tree.row_height)
 	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width, bottom-top})
 	defer draw.pop_clip(list)
