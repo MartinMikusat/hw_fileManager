@@ -14,6 +14,7 @@ hw-odin test "$ROOT" -vet \
   -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
   -collection:components="$ODIN_LIBS/hw_odin_ui_components" \
+  -collection:native_update="$ODIN_LIBS/hw_odin_native_update" \
   -define:ODIN_TEST_THREADS=1 \
   -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true \
   -extra-linker-flags:"-framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics"

@@ -9,6 +9,7 @@ import "core:unicode/utf8"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import devlog "devlog:."
+import coretext "ui_framework:coretext"
 
 foreign import coregraphics "system:CoreGraphics.framework"
 foreign import corefoundation "system:CoreFoundation.framework"
@@ -26,7 +27,6 @@ foreign corefoundation {
 	CFDictionaryCreate :: proc(allocator: rawptr, keys: [^]rawptr, values: [^]rawptr, count: int, key_callbacks: rawptr, value_callbacks: rawptr) -> rawptr ---
 	kCFTypeDictionaryKeyCallBacks: [8]u64
 	kCFTypeDictionaryValueCallBacks: [8]u64
-	kCFBooleanTrue: rawptr
 }
 
 @(default_calling_convention = "c")
@@ -161,7 +161,7 @@ preview_decode_image :: proc(path: string, max_pixels: int, background: [3]f64, 
 	number := CFNumberCreate(nil, CF_NUMBER_SINT32_TYPE, &size)
 	defer CFRelease(number)
 	keys := [3]rawptr{kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceCreateThumbnailWithTransform, kCGImageSourceThumbnailMaxPixelSize}
-	values := [3]rawptr{kCFBooleanTrue, kCFBooleanTrue, number}
+	values := [3]rawptr{coretext.kCFBooleanTrue, coretext.kCFBooleanTrue, number}
 	options := CFDictionaryCreate(nil, raw_data(keys[:]), raw_data(values[:]), 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)
 	if options == nil {return}
 	defer CFRelease(options)

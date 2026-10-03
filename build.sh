@@ -27,6 +27,10 @@ case "$MODE" in
     ;;
   release)
     ODIN_FLAGS="-o:speed"
+    # The release tool compiles the version and feed in; without them the app never updates.
+    if [ -n "${HW_UPDATE_VERSION:-}" ]; then
+      ODIN_FLAGS="$ODIN_FLAGS -define:HW_UPDATE_VERSION=$HW_UPDATE_VERSION -define:HW_UPDATE_FEED_URL=$HW_UPDATE_FEED_URL -define:HW_UPDATE_TEAM_ID=$HW_UPDATE_TEAM_ID"
+    fi
     ;;
   *)
     echo "usage: ./build.sh [debug|trace|asan|release]" >&2
@@ -39,6 +43,7 @@ hw-odin build "$ROOT" -vet \
   -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
   -collection:components="$ODIN_LIBS/hw_odin_ui_components" \
+  -collection:native_update="$ODIN_LIBS/hw_odin_native_update" \
   -extra-linker-flags:"$ASAN_LINKER_FLAGS -framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics" \
   $ODIN_FLAGS -out:"$BUILD/file_manager"
 

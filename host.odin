@@ -73,6 +73,7 @@ Host :: struct {
 	edit_row:       int,
 	notice:         [NOTICE_MAX]u8,
 	notice_len:     int,
+	notice_is_error: bool,
 	notice_until_ms: i64,
 	preview:        Preview,
 	preview_rect:   draw.Rect,
@@ -130,7 +131,8 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 	})
 }
 
-notice_set :: proc(host: ^Host, text: string) {
+notice_set :: proc(host: ^Host, text: string, error := true) {
+	host.notice_is_error = error
 	length := min(len(text), NOTICE_MAX)
 	copy(host.notice[:length], text[:length])
 	host.notice_len = length
@@ -246,6 +248,7 @@ host_initialize :: proc() -> bool {
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	host.terminals = terminals_detect()
+	update_start()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) > 0 {
 		if !tree_open(&host.tree, start, grandparent = true) && !host_open_home() {return false}
@@ -387,6 +390,7 @@ host_render :: proc() {
 		row = host.edit_row,
 		text = edit_text(&host),
 	}
+	update_announce(&host)
 	notice := ""
 	notice_error := false
 	if host.edit_mode != .None {
@@ -405,7 +409,7 @@ host_render :: proc() {
 	}
 	if len(notice) == 0 && host.notice_len > 0 && time.to_unix_nanoseconds(now)/1_000_000 < host.notice_until_ms {
 		notice = string(host.notice[:host.notice_len])
-		notice_error = true
+		notice_error = host.notice_is_error
 	}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
@@ -533,6 +537,7 @@ host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Noti
 	host_flush_place()
 	host_capture_window_frame()
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	update_finish()
 }
 
 // host_settings_view is the settings with the terminal that would actually open.
