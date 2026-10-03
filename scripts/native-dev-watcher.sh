@@ -74,6 +74,7 @@ fingerprint() {
     "$ODIN_LIBS/hw_odin_matchSorter" \
     "$ODIN_LIBS/hw_odin_ipc_localCommand" \
     "$ODIN_LIBS/hw_odin_concurrency_taskQueue" \
+    -path "$BUILD" -prune -o \
     -type f \( -name '*.odin' -o -name '*.m' -o -name '*.h' -o -name '*.metal' -o -name '*.plist' \) \
     -print0 2>/dev/null |
     xargs -0 stat -f '%m:%z:%N' 2>/dev/null
