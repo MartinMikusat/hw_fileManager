@@ -68,8 +68,10 @@ column_load :: proc(column: ^Column, directory: string, allocator: mem.Allocator
 		return false
 	}
 	devlog.succeeded(devlog.global(), site, {file_id = filepath.base(directory)}, {rows = i64(len(entries))})
+	// directory may alias column.dir (tree_refresh), so clone it before the destroy frees it.
+	owned := strings.clone(directory, allocator)
 	column_destroy(column, allocator)
-	column.dir = strings.clone(directory, allocator)
+	column.dir = owned
 	column.entries = entries
 	column.selected = len(entries) > 0 ? 0 : -1
 	return true
