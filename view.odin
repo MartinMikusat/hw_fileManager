@@ -3,6 +3,7 @@ package file_manager
 import "core:fmt"
 import "core:path/filepath"
 import "core:time"
+import "core:unicode/utf8"
 import coretext "ui_framework:coretext"
 import text_input "components:text_input"
 import ui "ui_framework:core"
@@ -449,6 +450,94 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
 
+// view_connector_line draws an axis-aligned segment between two top-origin points.
+view_connector_line :: proc(list: ^draw.List, metrics: View_Metrics, x0, y0, x1, y1: f32, color: draw.Color) {
+	left, right := min(x0, x1), max(x0, x1)
+	top, bottom := min(y0, y1), max(y0, y1)
+	rect: draw.Rect
+	if y0 == y1 {
+		if right-left < 0.01 {return}
+		rect = {left, y0-CONNECTOR_WIDTH/2, right-left, CONNECTOR_WIDTH}
+	} else {
+		if bottom-top < 0.01 {return}
+		rect = {x0-CONNECTOR_WIDTH/2, top, CONNECTOR_WIDTH, bottom-top}
+	}
+	draw.solid(list, view_rect_draw(rect, metrics), color, edge_softness = 0.5)
+}
+
+// view_connector_corner draws a quarter circle of radius radius about (cx, cy) in the
+// quadrant (qx, qy), each +1 or -1 (top-origin), as the elbow of a connector.
+view_connector_corner :: proc(list: ^draw.List, metrics: View_Metrics, cx, cy, radius, qx, qy: f32, color: draw.Color) {
+	quadrant := draw.Rect{qx > 0 ? cx : cx-radius, qy > 0 ? cy : cy-radius, radius, radius}
+	draw.push_clip(list, view_rect_draw(quadrant, metrics))
+	defer draw.pop_clip(list)
+	circle := draw.Rect{cx-radius, cy-radius, 2*radius, 2*radius}
+	draw.solid(list, view_rect_draw(circle, metrics), color, corner_radius = radius, border_thickness = CONNECTOR_WIDTH, edge_softness = 0.5)
+}
+
+// view_draw_context_connector links a folder in the parent column to the listing of
+// its contents in the child column: out of the folder's name, across to a vertical
+// channel, along it, and into the listing's first row. channel is the channel's x.
+view_draw_context_connector :: proc(tree: ^Tree, list: ^draw.List, parent: ^Column, child: ^Column, block: Block, channel: f32, metrics: View_Metrics) {
+	if block.row < 0 || block.row >= len(parent.entries) {return}
+	name := parent.entries[block.row].name
+	name_cells := min(utf8.rune_count_in_string(name), NAME_MAX_CHARS)
+	x0 := min(parent.x+COLUMN_PAD+(f32(name_cells)+0.5)*metrics.char_advance, parent.x+parent.width)
+	y0 := parent.y+f32(block.row)*tree.row_height+tree.row_height/2
+	x1 := child.x
+	y1 := block.y+tree.row_height/2
+	color := COLOR_CONNECTOR
+	if abs(y1-y0) < 1 {
+		view_connector_line(list, metrics, x0, y0, x1, y1, color)
+		return
+	}
+	sign := y1 > y0 ? f32(1) : f32(-1)
+	radius := min(f32(5), abs(y1-y0)/2, channel-x0, x1-channel)
+	if radius < 0.5 {
+		view_connector_line(list, metrics, x0, y0, channel, y0, color)
+		view_connector_line(list, metrics, channel, y0, channel, y1, color)
+		view_connector_line(list, metrics, channel, y1, x1, y1, color)
+		return
+	}
+	view_connector_line(list, metrics, x0, y0, channel-radius, y0, color)
+	view_connector_corner(list, metrics, channel-radius, y0+sign*radius, radius, 1, -sign, color)
+	view_connector_line(list, metrics, channel, y0+sign*radius, channel, y1-sign*radius, color)
+	view_connector_corner(list, metrics, channel+radius, y1-sign*radius, radius, -1, sign, color)
+	view_connector_line(list, metrics, channel+radius, y1, x1, y1, color)
+}
+
+// view_draw_context_connectors draws one connector per sibling listing around a child
+// column. Farther listings take channels further left, so the lines nest without
+// crossing, as in references/03-expanded-levels.jpg.
+view_draw_context_connectors :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: View_Metrics) {
+	parent := &tree.columns[index]
+	child := &tree.columns[index+1]
+	top := CHROME_HEIGHT
+	bottom := metrics.height-metrics.bar_height
+	draw.push_clip(list, view_rect_draw({0, top, metrics.width, bottom-top}, metrics))
+	defer draw.pop_clip(list)
+	x0 := parent.x+parent.width
+	x1 := child.x
+	for blocks in ([2][]Block{child.above[:], child.below[:]}) {
+		visible := 0
+		for block in blocks {
+			y0 := parent.y+f32(block.row)*tree.row_height
+			y1 := block.y
+			if max(y0, y1)+tree.row_height < top || min(y0, y1) > bottom {continue}
+			visible += 1
+		}
+		step := min(f32(4), (x1-x0-6)/f32(max(visible, 1)+1))
+		drawn := 0
+		for block in blocks {
+			y0 := parent.y+f32(block.row)*tree.row_height
+			y1 := block.y
+			if max(y0, y1)+tree.row_height < top || min(y0, y1) > bottom {continue}
+			drawn += 1
+			view_draw_context_connector(tree, list, parent, child, block, x1-3-f32(drawn)*step+step, metrics)
+		}
+	}
+}
+
 view_draw_gather_marker :: proc(list: ^draw.List, metrics: View_Metrics, x, row_top, row_height: f32) {
 	draw.solid(list, view_rect_draw({x, row_top+(row_height-5)/2, 5, 5}, metrics), COLOR_RED, edge_softness = 0)
 }
@@ -760,7 +849,10 @@ view_draw :: proc(
 	state: View_State,
 ) {
 	view_draw_chrome(tree, list, text, metrics, state.hot)
-	for index in 0 ..< max(len(tree.columns)-1, 0) {view_draw_connector(tree, list, index, metrics)}
+	for index in 0 ..< max(len(tree.columns)-1, 0) {
+		view_draw_connector(tree, list, index, metrics)
+		view_draw_context_connectors(tree, list, index, metrics)
+	}
 	for index in 0 ..< len(tree.columns) {
 		view_draw_column(tree, list, text, index, metrics, state)
 		view_draw_trail(tree, list, text, index, metrics, state)
