@@ -591,10 +591,11 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	for entry, row in column.entries {
 		row_top := column.y+f32(row)*tree.row_height
 		if row_top+tree.row_height < top || row_top > bottom {continue}
-		// Only the focused column's selection is highlighted; the selection in
-		// the others just keeps its name untruncated, the column being sized for it.
+		// The selection in the focused column and in each column before it (the chain
+		// down to it) is highlighted; those in the previews after it just keep their
+		// names untruncated, the column being sized for them.
 		selected := row == column.selected
-		current := selected && index == tree.active
+		current := selected && index <= tree.active
 		if current {
 			left := column.x+COLUMN_PAD-metrics.char_advance
 			right := column.x+column.width-COLUMN_PAD+metrics.char_advance
