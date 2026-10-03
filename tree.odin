@@ -234,9 +234,13 @@ tree_expand :: proc(tree: ^Tree) -> bool {
 tree_collapse :: proc(tree: ^Tree) -> bool {
 	if tree.active <= 0 {return false}
 	target := tree.active-1
+	selected := tree.columns[target].selected
 	tree_truncate(tree, tree.active)
-	tree.active = target
-	return true
+	if selected < 0 {return true}
+	// Keep the parent focused but show its selected folder in the child column,
+	// the same preview up/down gives; otherwise the folder's contents vanish
+	// until the next move re-creates the column.
+	return tree_select(tree, target, selected, enter = false)
 }
 
 tree_focus_column :: proc(tree: ^Tree, column_index: int) -> bool {

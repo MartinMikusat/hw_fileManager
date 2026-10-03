@@ -114,8 +114,9 @@ tree_navigation_cascades_and_collapses :: proc(t: ^testing.T) {
 	testing.expect_value(t, tree.active, 2)
 
 	testing.expect(t, tree_collapse(&tree))
-	testing.expect_value(t, len(tree.columns), 2)
+	testing.expect_value(t, len(tree.columns), 3)
 	testing.expect_value(t, tree.active, 1)
+	testing.expect(t, strings.has_suffix(tree.columns[2].dir, "/alpha/nested"))
 
 	// Selecting a file drops every deeper column.
 	testing.expect(t, tree_select(&tree, 1, 1))
@@ -185,4 +186,24 @@ tree_refresh_drops_the_column_of_a_deleted_directory :: proc(t: ^testing.T) {
 	testing.expect(t, !os.exists(action_fixture_path("alpha")))
 	testing.expect_value(t, len(host.tree.columns), 1)
 	testing.expect_value(t, host.tree.active, 0)
+}
+
+@(test)
+tree_collapse_keeps_the_parent_selection_previewed :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT))
+	testing.expect_value(t, tree.active, 1)
+	testing.expect_value(t, len(tree.columns), 2)
+
+	preview := tree.columns[1].dir
+	testing.expect(t, tree_collapse(&tree))
+	testing.expect_value(t, tree.active, 0)
+	// The parent stays focused but its selected folder is still shown beside it.
+	testing.expect_value(t, len(tree.columns), 2)
+	testing.expect_value(t, tree.columns[1].dir, preview)
 }
