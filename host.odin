@@ -4,6 +4,7 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:os"
+import "core:time"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import QC "vendor:darwin/QuartzCore"
@@ -47,8 +48,11 @@ Host :: struct {
 	settings:       Settings,
 	settings_open:  bool,
 	zoxide:         string,
-	typed:          [TYPED_MAX]u8,
-	typed_len:      int,
+	input:          [INPUT_MAX]u8,
+	input_len:      int,
+	input_mode:     Input_Mode,
+	search_index:   int,
+	search_committed: bool,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -273,13 +277,21 @@ host_render :: proc() {
 		height = height,
 		char_advance = measure_char_advance(&host.text, host.tree.font_size),
 		row_height = host.tree.row_height,
+		bar_height = host.tree.row_height,
 	}
 	host.char_advance = metrics.char_advance
 	view_layout(&host.tree, metrics)
-	view_draw(&host.tree, &host.list, &host.text, metrics, host.settings, host.settings_open, {
-		control = host.hot_control,
-		settings_button = host.hot_settings_button,
-		settings_hot = host.hot_settings_hot,
+	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
+		settings = host.settings,
+		settings_open = host.settings_open,
+		hot = {
+			control = host.hot_control,
+			settings_button = host.hot_settings_button,
+			settings_hot = host.hot_settings_hot,
+		},
+		input_mode = host.input_mode,
+		input = input_text(&host),
+		now = time.now(),
 	})
 	coretext.flush(&host.text)
 	if !metal.encode_to_drawable(
@@ -385,6 +397,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		height = host.view_height,
 		char_advance = host.char_advance,
 		row_height = host.tree.row_height,
+		bar_height = host.tree.row_height,
 	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
@@ -413,6 +426,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			return
 		}
 		intrinsics.objc_send(nil, host.window, "performWindowDragWithEvent:", event)
+		return
+	}
+	if point.y > host.view_height-host.tree.row_height {
+		input_reset(&host)
+		host_request_frames(1)
 		return
 	}
 	column := tree_column_at(&host.tree, point.x)
@@ -450,6 +468,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	command := .Command in event->modifierFlags()
 	control := .Control in event->modifierFlags()
+	shift := .Shift in event->modifierFlags()
 	key := uint(event->keyCode())
 	if host.settings_open {
 		switch {
@@ -466,7 +485,16 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	if !command && !control {
 		if characters := event->characters(); characters != nil {
 			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
-				cd_typed_append(&host, text[0])
+				switch {
+				case text[0] == '/' && host.input_mode != .Search:
+					search_begin(&host)
+				case host.input_mode == .Search && host.search_committed:
+					// n/N are navigation and are handled below.
+				case:
+					if host.input_mode == .None {host.input_mode = .Cd}
+					input_append(&host, text[0])
+					if host.input_mode == .Search {search_retarget(&host)}
+				}
 			}
 		}
 	}
@@ -484,9 +512,12 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case command && key == 15:
 		_ = tree_refresh(&host.tree)
 	case key == 51:
-		if host.typed_len > 0 {host.typed_len -= 1}
+		if host.input_len > 0 {
+			host.input_len -= 1
+			if host.input_mode == .Search {search_retarget(&host)}
+		}
 	case key == 53:
-		host.typed_len = 0
+		input_reset(&host)
 	case key == 126:
 		_ = tree_move(&host.tree, -1)
 	case key == 125:
@@ -496,7 +527,14 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 124:
 		_ = tree_expand(&host.tree)
 	case key == 36:
-		if host.typed_len > 0 {cd_run(&host)} else {_ = tree_expand(&host.tree)}
+		switch host.input_mode {
+		case .Cd:     cd_run(&host)
+		case .Search:
+			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true}
+		case .None:   _ = tree_expand(&host.tree)
+		}
+	case key == 45:
+		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
 	case key == 115:
 		_ = host_select_index(0)
 	case key == 119:

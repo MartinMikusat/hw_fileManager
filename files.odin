@@ -3,70 +3,14 @@ package file_manager
 import "core:os"
 import "core:slice"
 import "core:strings"
-
-Entry_Kind :: enum {
-	Directory,
-	Source,
-	Document,
-	Image,
-	Archive,
-	Other,
-}
+import "core:time"
 
 Entry :: struct {
-	name:   string,
-	path:   string,
-	kind:   Entry_Kind,
-	is_dir: bool,
-	hidden: bool,
-}
-
-SOURCE_EXTENSIONS :: []string{
-	"odin", "c", "h", "cc", "cpp", "hpp", "m", "mm", "swift", "rs", "go",
-	"ts", "tsx", "js", "jsx", "py", "rb", "lua", "zig", "java", "kt", "cs",
-	"sql", "sh", "zsh", "bash", "metal",
-}
-
-DOCUMENT_EXTENSIONS :: []string{
-	"md", "txt", "pdf", "rtf", "doc", "docx", "csv", "tsv", "xls", "xlsx",
-	"ppt", "pptx", "ics", "tex", "html", "css", "json", "yaml", "yml", "toml",
-	"plist", "log",
-}
-
-IMAGE_EXTENSIONS :: []string{
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "svg",
-	"ico", "psd",
-}
-
-ARCHIVE_EXTENSIONS :: []string{
-	"zip", "tar", "gz", "bz2", "xz", "7z", "rar", "dmg", "iso",
-}
-
-entry_kind :: proc(name: string, is_dir: bool) -> Entry_Kind {
-	if is_dir {return .Directory}
-	dot := strings.last_index_byte(name, '.')
-	if dot < 0 || dot == len(name)-1 {return .Other}
-	extension := name[dot+1:]
-	if len(extension) > 12 {return .Other}
-	buffer: [12]u8
-	lower := buffer[:len(extension)]
-	for index in 0 ..< len(extension) {
-		character := extension[index]
-		switch {
-		case 'a' <= character && character <= 'z':
-			lower[index] = character
-		case 'A' <= character && character <= 'Z':
-			lower[index] = character + ('a' - 'A')
-		case:
-			lower[index] = character
-		}
-	}
-	folded := string(lower)
-	if slice.contains(SOURCE_EXTENSIONS, folded) {return .Source}
-	if slice.contains(DOCUMENT_EXTENSIONS, folded) {return .Document}
-	if slice.contains(IMAGE_EXTENSIONS, folded) {return .Image}
-	if slice.contains(ARCHIVE_EXTENSIONS, folded) {return .Archive}
-	return .Other
+	name:     string,
+	path:     string,
+	modified: time.Time,
+	is_dir:   bool,
+	hidden:   bool,
 }
 
 read_entries :: proc(directory: string, allocator := context.allocator) -> ([]Entry, bool) {
@@ -86,7 +30,7 @@ read_entries :: proc(directory: string, allocator := context.allocator) -> ([]En
 		append(&list, Entry{
 			name = strings.clone(name, allocator),
 			path = strings.clone(info.fullpath, allocator),
-			kind = entry_kind(name, is_dir),
+			modified = info.modification_time,
 			is_dir = is_dir,
 			hidden = name[0] == '.',
 		})

@@ -119,14 +119,19 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if target == nil {return false}
 	defer metal.release(target)
 
-	metrics := View_Metrics{width = f32(width), height = f32(height), row_height = tree.row_height}
+	metrics := View_Metrics{width = f32(width), height = f32(height), row_height = tree.row_height, bar_height = tree.row_height}
 	for _ in 0 ..< 3 {
 		metal.begin_texture_frame(&renderer)
 		coretext.begin_frame(&text, scale, metal.atlas_io(&renderer))
 		metrics.char_advance = measure_char_advance(&text, tree.font_size)
 		draw.list_reset(&list)
 		view_layout(&tree, metrics)
-		view_draw(&tree, &list, &text, metrics, settings, settings_open, Hot_State{control = -1})
+		view_draw(&tree, &list, &text, metrics, View_State{
+			settings = settings,
+			settings_open = settings_open,
+			hot = Hot_State{control = -1},
+			now = time.now(),
+		})
 		coretext.flush(&text)
 		command_buffer := queue->commandBuffer()
 		if !metal.encode_to_drawable(

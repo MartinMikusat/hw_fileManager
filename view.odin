@@ -1,6 +1,7 @@
 package file_manager
 
 import "core:fmt"
+import "core:time"
 import coretext "ui_framework:coretext"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
@@ -10,6 +11,7 @@ View_Metrics :: struct {
 	height:       f32,
 	char_advance: f32,
 	row_height:   f32,
+	bar_height:   f32,
 }
 
 Settings_Hot :: enum {
@@ -22,6 +24,15 @@ Hot_State :: struct {
 	control:         int,
 	settings_button: bool,
 	settings_hot:    Settings_Hot,
+}
+
+View_State :: struct {
+	settings:      Settings,
+	settings_open: bool,
+	hot:           Hot_State,
+	input_mode:    Input_Mode,
+	input:         string,
+	now:           time.Time,
 }
 
 // Iconoir regular paths, in the icon's 24x24 coordinate space.
@@ -60,7 +71,11 @@ Settings_Layout :: struct {
 
 view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 	longest := 0
-	for entry in column.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
+	for entry, index in column.entries {
+		// The selected name is shown in full; the rest are capped.
+		count := index == column.selected ? len(entry.name) : min(len(entry.name), NAME_MAX_CHARS)
+		longest = max(longest, count)
+	}
 	return f32(longest)*char_advance+2*COLUMN_PAD
 }
 
@@ -101,8 +116,9 @@ view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
 	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
 	tree.pan_x = metrics.width/2-(left+column.width/2)
 	if column.selected < 0 {return}
+	center := (CHROME_HEIGHT+(metrics.height-metrics.bar_height))/2
 	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
-	tree.pan_y = metrics.height/2-row_center
+	tree.pan_y = center-row_center
 }
 
 view_layout :: proc(tree: ^Tree, metrics: View_Metrics) {
@@ -257,12 +273,13 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
 
-view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics) {
+view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
 	column := &tree.columns[index]
 	top := CHROME_HEIGHT
-	bottom := max(metrics.height-COLUMN_PAD, top+tree.row_height)
+	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
 	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width, bottom-top})
 	defer draw.pop_clip(list)
+	searching := state.input_mode == .Search && len(state.input) > 0
 	for entry, row in column.entries {
 		row_top := column.y+f32(row)*tree.row_height
 		if row_top+tree.row_height < top || row_top > bottom {continue}
@@ -270,9 +287,57 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		if selected {
 			draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTION_BG)
 		}
-		color := entry_color(entry.kind, entry.hidden)
-		if selected {color = COLOR_SELECTED}
-		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, column.width-2*COLUMN_PAD)
+		color := entry_color(entry.modified, state.now, entry.hidden)
+		max_width := f32(0)
+		if selected {
+			color = COLOR_SELECTED
+		} else {
+			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
+			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
+		}
+		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
+	}
+}
+
+view_breadcrumb :: proc(tree: ^Tree) -> string {
+	if tree.active >= 0 && tree.active < len(tree.columns) {
+		if entry, ok := tree_selected_entry(tree); ok {return entry.path}
+		return tree.columns[tree.active].dir
+	}
+	return tree_root_directory(tree)
+}
+
+// view_bar_text right-aligns on overflow so the selected name (or the search
+// counter) stays visible instead of being cut off.
+view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool) {
+	if len(value) == 0 {return}
+	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
+	if run == nil {return}
+	x := COLUMN_PAD
+	if right_align {
+		if width := run.metrics.width; x+width > metrics.width-COLUMN_PAD {x = metrics.width-COLUMN_PAD-width}
+	}
+	top := metrics.height-metrics.bar_height
+	text_top := top+(metrics.bar_height-(run.metrics.ascent+run.metrics.descent))/2
+	origin := ui.Vec2{x, metrics.height-(text_top+run.metrics.ascent)}
+	coretext.emit_shaped_run(text, list, run, origin, color, "")
+}
+
+view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
+	draw.push_clip(list, {0, 0, metrics.width, metrics.bar_height})
+	defer draw.pop_clip(list)
+	switch state.input_mode {
+	case .Cd:
+		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false)
+	case .Search:
+		if len(state.input) == 0 {
+			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false)
+			return
+		}
+		current, total := search_progress(tree, state.input)
+		view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
+	case .None:
+		view_bar_text(text, list, view_breadcrumb(tree), tree, metrics, COLOR_DIM, true)
 	}
 }
 
@@ -308,12 +373,11 @@ view_draw :: proc(
 	list: ^draw.List,
 	text: ^coretext.Context,
 	metrics: View_Metrics,
-	settings: Settings,
-	settings_open: bool,
-	hot: Hot_State,
+	state: View_State,
 ) {
-	view_draw_chrome(tree, list, text, metrics, hot)
+	view_draw_chrome(tree, list, text, metrics, state.hot)
 	for index in 0 ..< max(len(tree.columns)-1, 0) {view_draw_connector(tree, list, index, metrics)}
-	for index in 0 ..< len(tree.columns) {view_draw_column(tree, list, text, index, metrics)}
-	view_draw_settings(tree, list, text, metrics, settings, settings_open, hot)
+	for index in 0 ..< len(tree.columns) {view_draw_column(tree, list, text, index, metrics, state)}
+	view_draw_bar(tree, list, text, metrics, state)
+	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot)
 }

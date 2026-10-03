@@ -1,16 +1,16 @@
 package file_manager
 
 import "core:testing"
+import "core:time"
 
 @(test)
-entry_kind_classifies_by_extension :: proc(t: ^testing.T) {
-	testing.expect_value(t, entry_kind("Sources", true), Entry_Kind.Directory)
-	testing.expect_value(t, entry_kind("App.odin", false), Entry_Kind.Source)
-	testing.expect_value(t, entry_kind("Photo.PNG", false), Entry_Kind.Image)
-	testing.expect_value(t, entry_kind("README.md", false), Entry_Kind.Document)
-	testing.expect_value(t, entry_kind("bundle.zip", false), Entry_Kind.Archive)
-	testing.expect_value(t, entry_kind("Makefile", false), Entry_Kind.Other)
-	testing.expect_value(t, entry_kind("trailing.", false), Entry_Kind.Other)
+entry_color_buckets_by_age :: proc(t: ^testing.T) {
+	now := time.now()
+	testing.expect_value(t, entry_color(now, now, false), COLOR_SOURCE)
+	testing.expect_value(t, entry_color(time.time_add(now, -2*time.Hour), now, false), COLOR_DIRECTORY)
+	testing.expect_value(t, entry_color(time.time_add(now, -3*24*time.Hour), now, false), COLOR_DOCUMENT)
+	testing.expect_value(t, entry_color(time.time_add(now, -60*24*time.Hour), now, false), COLOR_IMAGE)
+	testing.expect_value(t, entry_color(now, now, true), COLOR_DIM)
 }
 
 @(test)
@@ -19,4 +19,12 @@ name_fold_orders_case_insensitively :: proc(t: ^testing.T) {
 	testing.expect(t, name_less_fold("Beta", "gamma"))
 	testing.expect(t, !name_less_fold("Beta", "alpha"))
 	testing.expect(t, !name_less_fold("same", "SAME"))
+}
+
+@(test)
+name_contains_fold_matches_case_insensitively :: proc(t: ^testing.T) {
+	testing.expect(t, name_contains_fold("pi-clipboard.png", "CLIP"))
+	testing.expect(t, name_contains_fold("Alpha", "ph"))
+	testing.expect(t, !name_contains_fold("alpha", "beta"))
+	testing.expect(t, !name_contains_fold("ab", "abc"))
 }
