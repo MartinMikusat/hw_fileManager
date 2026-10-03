@@ -25,9 +25,9 @@ WINDOW_MIN_HEIGHT :: NS.Float(320)
 WINDOW_STYLE :: NS.WindowStyleMask{.Closable, .Miniaturizable, .Resizable}
 MINIMIZE_STYLE :: NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable, .Resizable}
 
-CONTROL_CLOSE :: 0
-CONTROL_MINIMIZE :: 1
-CONTROL_ZOOM :: 2
+CONTROL_MINIMIZE :: 0
+CONTROL_ZOOM :: 1
+CONTROL_CLOSE :: 2
 
 Host :: struct {
 	app:            ^NS.Application,

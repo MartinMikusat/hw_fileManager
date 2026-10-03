@@ -52,27 +52,6 @@ View_State :: struct {
 	now:              time.Time,
 }
 
-// Iconoir regular paths, in the icon's 24x24 coordinate space.
-XMARK_PATHS :: [][4]f32{
-	{6.75827, 17.2426, 12.0009, 12.0},
-	{17.2435, 6.75736, 12.0009, 12.0},
-	{12.0009, 12.0, 6.75827, 6.75736},
-	{12.0009, 12.0, 17.2435, 17.2426},
-}
-MINUS_PATHS :: [][4]f32{{6.0, 12.0, 18.0, 12.0}}
-MAXIMIZE_PATHS :: [][4]f32{
-	{7.0, 4.0, 4.0, 4.0},
-	{4.0, 4.0, 4.0, 7.0},
-	{17.0, 4.0, 20.0, 4.0},
-	{20.0, 4.0, 20.0, 7.0},
-	{7.0, 20.0, 4.0, 20.0},
-	{4.0, 20.0, 4.0, 17.0},
-	{17.0, 20.0, 20.0, 20.0},
-	{20.0, 20.0, 20.0, 17.0},
-}
-ICON_BOX :: f32(24)
-ICON_STROKE :: f32(1.5)
-
 SETTINGS_LABEL :: "[Settings]"
 MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
@@ -187,9 +166,11 @@ view_rect_draw :: proc(rect: draw.Rect, metrics: View_Metrics) -> draw.Rect {
 	return {rect.x, metrics.height-rect.y-rect.h, rect.w, rect.h}
 }
 
+// The semaphore strip is the right-most item of the chrome row: three bracketed
+// controls, edge to edge, flush with the right inset.
 view_control_rect :: proc(index: int, metrics: View_Metrics) -> draw.Rect {
 	height := min(metrics.row_height, CHROME_HEIGHT)
-	x := (CONTROL_INSET_CELLS+f32(index)*CONTROL_STRIDE_CELLS)*metrics.char_advance
+	x := metrics.width-(CONTROL_INSET_CELLS+f32(3-index)*CONTROL_CELLS)*metrics.char_advance
 	y := (CHROME_HEIGHT-height)/2
 	return {x, metrics.height-y-height, CONTROL_CELLS*metrics.char_advance, height}
 }
@@ -208,7 +189,8 @@ view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
 view_settings_control_rect :: proc(metrics: View_Metrics) -> draw.Rect {
 	height := min(metrics.row_height, CHROME_HEIGHT)
 	width := f32(len(SETTINGS_LABEL))*metrics.char_advance
-	x := metrics.width-CONTROL_INSET_CELLS*metrics.char_advance-width
+	strip := (CONTROL_INSET_CELLS+3*CONTROL_CELLS)*metrics.char_advance
+	x := metrics.width-strip-metrics.char_advance-width
 	y := (CHROME_HEIGHT-height)/2
 	return {x, metrics.height-y-height, width, height}
 }
@@ -274,34 +256,28 @@ view_draw_text :: proc(
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
 }
 
-view_draw_glyph :: proc(list: ^draw.List, paths: [][4]f32, box: draw.Rect, color: draw.Color) {
-	size := min(box.w, box.h)
-	scale := size/ICON_BOX
-	left := box.x+(box.w-size)/2
-	bottom := box.y+(box.h-size)/2
-	draw.path_begin(list)
-	for segment in paths {
-		draw.path_move_to(list, left+segment[0]*scale, bottom+size-segment[1]*scale)
-		draw.path_line_to(list, left+segment[2]*scale, bottom+size-segment[3]*scale)
-	}
-	draw.path_stroke(list, color, ICON_STROKE*scale, .Round, .Round)
-}
-
-view_draw_controls :: proc(list: ^draw.List, metrics: View_Metrics, hot: Hot_State) {
+view_draw_controls :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, hot: Hot_State) {
 	for index in 0 ..< 3 {
 		rect := view_control_rect(index, metrics)
-		if index == hot.control {draw.solid(list, rect, COLOR_TEXT, edge_softness = 0)}
-		color := index == hot.control ? COLOR_BACKGROUND : COLOR_TEXT
+		inverted := index == hot.control
+		if inverted {draw.solid(list, rect, COLOR_TEXT, edge_softness = 0)}
+		color := inverted ? COLOR_BACKGROUND : COLOR_TEXT
+		top := metrics.height-rect.y-rect.h
+		cell := rect.w/3
+		label := ""
 		switch index {
-		case CONTROL_CLOSE:    view_draw_glyph(list, XMARK_PATHS, rect, color)
-		case CONTROL_MINIMIZE: view_draw_glyph(list, MINUS_PATHS, rect, color)
-		case CONTROL_ZOOM:     view_draw_glyph(list, MAXIMIZE_PATHS, rect, color)
+		case CONTROL_MINIMIZE: label = "_"
+		case CONTROL_ZOOM:     label = "+"
+		case CONTROL_CLOSE:    label = "x"
 		}
+		view_draw_text(text, list, "[", rect.x, top, rect.h, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, label, rect.x+cell, top, rect.h, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, "]", rect.x+2*cell, top, rect.h, tree.font_size, color, metrics.height)
 	}
 }
 
 view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, hot: Hot_State) {
-	view_draw_controls(list, metrics, hot)
+	view_draw_controls(tree, list, text, metrics, hot)
 	settings := view_settings_control_rect(metrics)
 	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
 	settings_top := metrics.height-settings.y-settings.h
@@ -309,7 +285,7 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	title := tree_root_directory(tree)
 	if entry, ok := tree_selected_entry(tree); ok {title = entry.path}
 	if len(title) == 0 {return}
-	x := (CONTROL_INSET_CELLS+3*CONTROL_STRIDE_CELLS)*metrics.char_advance
+	x := CONTROL_INSET_CELLS*metrics.char_advance
 	available := max(settings.x-x-metrics.char_advance, 0)
 	view_draw_text(text, list, title, x, 0, CHROME_HEIGHT, tree.font_size, COLOR_DIM, metrics.height, available)
 }
