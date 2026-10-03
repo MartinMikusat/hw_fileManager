@@ -82,6 +82,7 @@ Host :: struct {
 	shift_down:     bool,
 	terminals:      Terminals,
 	frames_pending: int,
+	wheel_rows:     f32,
 	frame_tick:     time.Tick,
 	frame_animated: bool,
 	initialized:    bool,
@@ -730,10 +731,24 @@ host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 
 host_scroll_wheel :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
+	if host.settings_open || host.edit_mode != .None {return}
 	point := host_pointer_from_event(event)
-	if preview_scroll_wheel(&host, point.x, point.y, f32(event->scrollingDeltaY()), bool(event->hasPreciseScrollingDeltas())) {
+	delta := f32(event->scrollingDeltaY())
+	precise := bool(event->hasPreciseScrollingDeltas())
+	if preview_scroll_wheel(&host, point.x, point.y, delta, precise) {
 		host_request_frames(2)
+		return
 	}
+	// Anywhere else the wheel moves the selection through the active column, and
+	// the cascade follows it as it does for the arrow keys.
+	host.wheel_rows -= precise ? delta/host.tree.row_height : delta*3
+	rows := int(host.wheel_rows)
+	if rows == 0 {return}
+	host.wheel_rows -= f32(rows)
+	if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {
+		_ = host_select_index(host.tree.columns[host.tree.active].selected+rows)
+	}
+	host_request_frames(2)
 }
 
 host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
