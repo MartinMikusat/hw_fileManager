@@ -5,8 +5,6 @@ import draw "ui_framework:draw"
 import "core:time"
 
 FONT_MONO :: ui.Font_Handle(1)
-// Berkeley Mono, by PostScript name; the trial face is BerkeleyMonoTrial-Regular.
-FONT_POSTSCRIPT :: "BerkeleyMonoVariable-Regular"
 
 DEFAULT_FONT_SIZE :: 14
 FONT_SIZE_MIN :: 10

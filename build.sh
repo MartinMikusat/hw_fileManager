@@ -49,3 +49,9 @@ fi
 
 "$ROOT/scripts/package-native-app.sh" \
   file_manager "hw_fileManager" com.halwayland.filemanager "$MODE" "$BUILD/file_manager" false
+
+APP="$BUILD/file_manager-$MODE.app"
+mkdir -p "$APP/Contents/Resources/licenses"
+cp "$ROOT/fonts/OFL.md" "$APP/Contents/Resources/licenses/Iosevka-OFL.md"
+# The resource copy invalidates the signature the packaging step applied in release.
+if [ "$MODE" = "release" ]; then codesign --force --sign - "$APP"; fi

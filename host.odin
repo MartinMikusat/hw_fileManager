@@ -87,7 +87,8 @@ Host :: struct {
 host: Host
 
 register_mono_font :: proc(text: ^coretext.Context) {
-	coretext.register_font(text, FONT_MONO, FONT_POSTSCRIPT)
+	assert(font_register(), "embedded Iosevka must register; no silent substitute")
+	coretext.register_font(text, FONT_MONO, FONT_NAME)
 }
 
 measure_char_advance :: proc(text: ^coretext.Context, font_size: f32) -> f32 {
