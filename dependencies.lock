@@ -12,6 +12,12 @@
       "path": "../odin_libraries/hw_odin_ui_framework",
       "url": "https://github.com/MartinMikusat/hw_odin_ui_framework.git",
       "revision": "88818cbac68d61bcc2afeee42c59abf0104fa1c6"
+    },
+    {
+      "name": "hw_odin_ui_components",
+      "path": "../odin_libraries/hw_odin_ui_components",
+      "url": "https://github.com/MartinMikusat/hw_odin_ui_components.git",
+      "revision": "678179ea44b0ae06fc15f8a4744a01648ff4f11f"
     }
   ]
 }

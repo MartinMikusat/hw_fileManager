@@ -38,6 +38,7 @@ esac
 hw-odin build "$ROOT" -vet \
   -collection:devlog="$ODIN_LIBS/hw_odin_devlog" \
   -collection:ui_framework="$ODIN_LIBS/hw_odin_ui_framework" \
+  -collection:components="$ODIN_LIBS/hw_odin_ui_components" \
   -extra-linker-flags:"$ASAN_LINKER_FLAGS -framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics" \
   $ODIN_FLAGS -out:"$BUILD/file_manager"
 

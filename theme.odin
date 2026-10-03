@@ -29,11 +29,16 @@ COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
 COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
 COLOR_SEARCH        :: draw.Color{0.420, 0.860, 0.790, 1.0}
 COLOR_COPY          :: draw.Color{1.0, 0.360, 0.360, 1.0}
+COLOR_COPIED        :: draw.Color{0.420, 0.860, 0.520, 1.0}
+COLOR_ERROR         :: draw.Color{1.0, 0.230, 0.230, 1.0}
+COLOR_CARET         :: draw.Color{0.855, 0.855, 0.871, 1.0}
+COLOR_SELECTION_INK :: draw.Color{0.420, 0.860, 0.790, 0.35}
 COLOR_CONNECTOR     :: draw.Color{0.243, 0.400, 0.663, 1.0}
 COLOR_CONNECTOR_HOT :: draw.Color{0.494, 0.694, 0.996, 1.0}
 
 CONNECTOR_WIDTH :: f32(1.5)
 ACTION_GAP_CELLS :: f32(2)
+NOTICE_MAX :: 96
 SETTINGS_PANEL_WIDTH :: f32(380)
 
 COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.35}

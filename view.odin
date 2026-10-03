@@ -3,6 +3,7 @@ package file_manager
 import "core:fmt"
 import "core:time"
 import coretext "ui_framework:coretext"
+import text_input "components:text_input"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
 
@@ -35,8 +36,11 @@ View_State :: struct {
 	input_mode:       Input_Mode,
 	input:            string,
 	search_committed: bool,
-	copy_path:        string,
+	clip_path:        string,
+	clip_cut:         bool,
 	edit:             View_Edit,
+	notice:           string,
+	notice_error:     bool,
 	now:              time.Time,
 }
 
@@ -304,7 +308,9 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 		}
-		if len(state.copy_path) > 0 && entry.path == state.copy_path {color = COLOR_COPY}
+		if len(state.clip_path) > 0 && entry.path == state.clip_path {
+			color = state.clip_cut ? COLOR_COPY : COLOR_COPIED
+		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
 	if state.edit.active && state.edit.column == index {
@@ -312,16 +318,30 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
-// view_draw_inline_edit renders the rename/new-file field exactly on the entry's
-// row, with a block cursor after the text.
+// view_draw_inline_edit renders the rename/new-file field on the entry's row with
+// its selection and caret, scrolled to keep the caret visible.
 view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^Tree, metrics: View_Metrics, column: ^Column, edit: View_Edit) {
 	row_top := column.y+f32(edit.row)*tree.row_height
-	draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTION_BG)
-	view_draw_text(text, list, edit.text, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	x := column.x+COLUMN_PAD
-	if run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, 0, 0, false); run != nil {x += run.metrics.width}
-	cursor := draw.Rect{x, metrics.height-row_top-tree.row_height+4, 1.5, tree.row_height-8}
-	draw.solid(list, cursor, COLOR_TEXT, edge_softness = 0)
+	row_bottom := metrics.height-row_top-tree.row_height
+	draw.solid(list, {column.x-COLUMN_PAD, row_bottom, column.width, tree.row_height}, COLOR_SELECTION_BG)
+	content_width := max(column.width-2*COLUMN_PAD, metrics.char_advance)
+	run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, 0, 0, false)
+	caret_x := view_edit_offset(run, edit.text, edit.caret)
+	start_x := view_edit_offset(run, edit.text, edit.selection_start)
+	end_x := view_edit_offset(run, edit.text, edit.selection_end)
+	scroll := max(caret_x-(content_width-metrics.char_advance), 0)
+	left := column.x+COLUMN_PAD-scroll
+	if edit.selection_end > edit.selection_start {
+		draw.solid(list, {left+start_x, row_bottom, end_x-start_x, tree.row_height}, COLOR_SELECTION_INK, edge_softness = 0)
+	}
+	view_draw_text(text, list, edit.text, left, row_top, tree.row_height, tree.font_size, edit.error ? COLOR_ERROR : COLOR_TEXT, metrics.height)
+	draw.solid(list, {left+caret_x, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
+}
+
+view_edit_offset :: proc(run: ^coretext.Shaped_Run, value: string, offset: int) -> f32 {
+	if run == nil || run.line == nil {return 0}
+	utf16 := text_input.utf16_index_for_byte_offset(value, offset)
+	return f32(coretext.CTLineGetOffsetForStringIndex(run.line, utf16, nil))
 }
 
 // view_bar_text right-aligns on overflow so the search counter stays visible.
@@ -343,7 +363,7 @@ view_draw_actions :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	rects := action_bar_rects(metrics)
 	for kind in Action_Kind {
 		rect := rects[int(kind)]
-		available := action_available(tree, state.copy_path, kind)
+		available := action_available(tree, state.clip_path, kind)
 		color := available ? COLOR_TEXT : COLOR_DIM
 		if available && state.hot.action_hot && state.hot.action == kind {
 			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
@@ -373,6 +393,9 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 		if tree.active >= 0 && tree.active < len(tree.columns) {total = search_match_count(&tree.columns[tree.active], state.input)}
 		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true)
 	case .None:
+		if len(state.notice) > 0 {
+			view_bar_text(text, list, state.notice, tree, metrics, state.notice_error ? COLOR_ERROR : COLOR_DIM, false)
+		}
 	}
 	view_draw_actions(tree, list, text, metrics, state)
 }

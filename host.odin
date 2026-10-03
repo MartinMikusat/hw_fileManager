@@ -8,6 +8,7 @@ import "core:time"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
 import QC "vendor:darwin/QuartzCore"
+import text_input "components:text_input"
 import devlog "devlog:."
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
@@ -59,12 +60,16 @@ Host :: struct {
 	history_index:  int,
 	draft:          [INPUT_MAX]u8,
 	draft_len:      int,
-	copy_path:      string,
+	clip_path:      string,
+	clip_cut:       bool,
 	edit_mode:      Edit_Mode,
-	edit_text:      [INPUT_MAX]u8,
-	edit_len:       int,
+	edit_value:     string,
+	text_state:     text_input.State,
 	edit_column:    int,
 	edit_row:       int,
+	notice:         [NOTICE_MAX]u8,
+	notice_len:     int,
+	notice_until_ms: i64,
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	frames_pending: int,
@@ -122,6 +127,13 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 		reason = reason,
 		severity = severity,
 	})
+}
+
+notice_set :: proc(host: ^Host, text: string) {
+	length := min(len(text), NOTICE_MAX)
+	copy(host.notice[:length], text[:length])
+	host.notice_len = length
+	host.notice_until_ms = time.to_unix_nanoseconds(time.now())/1_000_000+3000
 }
 
 host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
@@ -253,7 +265,9 @@ host_initialize :: proc() -> bool {
 
 host_shutdown :: proc() {
 	if !host.initialized {return}
-	if len(host.copy_path) > 0 {delete(host.copy_path, context.allocator)}
+	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
+	edit_cancel(&host)
+	text_input.destroy(&host.text_state)
 	macos.display_link_stop(&host.display_link)
 	tree_destroy(&host.tree)
 	metal.renderer_destroy(&host.renderer)
@@ -302,11 +316,32 @@ host_render :: proc() {
 		bar_height = 2*host.tree.row_height,
 	}
 	host.char_advance = metrics.char_advance
+	now := time.now()
 	edit := View_Edit{
 		active = host.edit_mode != .None,
 		column = host.edit_column,
 		row = host.edit_row,
 		text = edit_text(&host),
+	}
+	notice := ""
+	notice_error := false
+	if host.edit_mode != .None {
+		edit.caret = host.text_state.caret_byte_offset
+		edit.selection_start, edit.selection_end = text_input.selection_bounds(&host.text_state, host.edit_value)
+		switch {
+		case edit_conflict(&host):
+			edit.error = true
+			notice = "a file with that name already exists"
+			notice_error = true
+		case len(host.edit_value) > 0 && edit_invalid(host.edit_value):
+			edit.error = true
+			notice = "invalid name"
+			notice_error = true
+		}
+	}
+	if len(notice) == 0 && host.notice_len > 0 && time.to_unix_nanoseconds(now)/1_000_000 < host.notice_until_ms {
+		notice = string(host.notice[:host.notice_len])
+		notice_error = true
 	}
 	view_layout(&host.tree, metrics, edit)
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
@@ -322,9 +357,12 @@ host_render :: proc() {
 		input_mode = host.input_mode,
 		input = input_text(&host),
 		search_committed = host.search_committed,
-		copy_path = host.copy_path,
+		clip_path = host.clip_path,
+		clip_cut = host.clip_cut,
 		edit = edit,
-		now = time.now(),
+		notice = notice,
+		notice_error = notice_error,
+		now = now,
 	})
 	coretext.flush(&host.text)
 	if !metal.encode_to_drawable(
@@ -370,7 +408,7 @@ host_update_hover :: proc(point: ui.Vec2) {
 	} else {
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
-		if kind, inside := action_bar_at(metrics, point); inside && action_available(&host.tree, host.copy_path, kind) {
+		if kind, inside := action_bar_at(metrics, point); inside && action_available(&host.tree, host.clip_path, kind) {
 			action = kind
 			action_hot = true
 		}
@@ -528,6 +566,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	command := .Command in event->modifierFlags()
 	control := .Control in event->modifierFlags()
+	option := .Option in event->modifierFlags()
 	shift := .Shift in event->modifierFlags()
 	key := uint(event->keyCode())
 	if host.settings_open {
@@ -543,18 +582,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if host.edit_mode != .None {
-		if !command && !control {
-			if characters := event->characters(); characters != nil {
-				if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
-					edit_append(&host, text[0])
-				}
-			}
-		}
-		switch {
-		case key == 51: edit_backspace(&host)
-		case key == 53: edit_cancel(&host)
-		case key == 36: edit_commit(&host)
-		}
+		_ = edit_handle_key(&host, event, key, command, option, control, shift)
 		host_request_frames(2)
 		return
 	}
