@@ -36,6 +36,7 @@ View_State :: struct {
 	input_mode:       Input_Mode,
 	input:            string,
 	search_committed: bool,
+	cd_completing:    bool,
 	clip_path:        string,
 	clip_cut:         bool,
 	edit:             View_Edit,
@@ -293,6 +294,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width, bottom-top})
 	defer draw.pop_clip(list)
 	searching := state.input_mode == .Search && len(state.input) > 0
+	completing := state.input_mode == .Cd && state.cd_completing && len(state.input) > 0 && index == tree.active
 	for entry, row in column.entries {
 		row_top := column.y+f32(row)*tree.row_height
 		if row_top+tree.row_height < top || row_top > bottom {continue}
@@ -307,6 +309,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		} else {
 			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
+			if completing && entry.is_dir && name_has_prefix_fold(entry.name, state.input) {color = COLOR_SEARCH}
 		}
 		if state.clip_cut && len(state.clip_path) > 0 && entry.path == state.clip_path {
 			color = COLOR_COPY

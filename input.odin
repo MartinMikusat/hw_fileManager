@@ -15,6 +15,7 @@ input_reset :: proc(host: ^Host) {
 	host.search_index = 0
 	host.search_committed = false
 	host.history_index = -1
+	host.cd_completing = false
 }
 
 input_append :: proc(host: ^Host, ch: u8) {
@@ -22,6 +23,7 @@ input_append :: proc(host: ^Host, ch: u8) {
 	host.input[host.input_len] = ch
 	host.input_len += 1
 	host.history_index = -1
+	host.cd_completing = false
 }
 
 input_text :: proc(host: ^Host) -> string {
@@ -52,6 +54,7 @@ input_history_move :: proc(host: ^Host, delta: int) {
 		copy(host.draft[:host.input_len], host.input[:host.input_len])
 		host.draft_len = host.input_len
 	}
+	host.cd_completing = false
 	next := clamp(host.history_index+delta, -1, host.history_count-1)
 	host.history_index = next
 	if next < 0 {

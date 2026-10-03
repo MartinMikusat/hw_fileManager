@@ -60,6 +60,7 @@ Host :: struct {
 	history_index:  int,
 	draft:          [INPUT_MAX]u8,
 	draft_len:      int,
+	cd_completing:  bool,
 	clip_path:      string,
 	clip_cut:       bool,
 	edit_mode:      Edit_Mode,
@@ -357,6 +358,7 @@ host_render :: proc() {
 		input_mode = host.input_mode,
 		input = input_text(&host),
 		search_committed = host.search_committed,
+		cd_completing = host.cd_completing,
 		clip_path = host.clip_path,
 		clip_cut = host.clip_cut,
 		edit = edit,
@@ -628,6 +630,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 51:
 		if host.input_len > 0 {
 			host.input_len -= 1
+			host.cd_completing = false
 			if host.input_mode == .Search && host.search_committed {search_refresh(&host)}
 		}
 	case key == 53:
@@ -647,6 +650,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; search_commit(&host)}
 		case .None:   _ = tree_expand(&host.tree)
 		}
+	case key == 48:
+		if host.input_mode == .Cd {cd_complete(&host)}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
 	case key == 18, key == 19, key == 20, key == 21, key == 23:
