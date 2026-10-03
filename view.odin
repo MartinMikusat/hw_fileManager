@@ -119,15 +119,15 @@ view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	}
 }
 
-// view_center_pan pins the active selection to the viewport center: its column is
-// centered horizontally and its row sits on the middle line, so navigation
-// translates the rest of the cascade around it.
+// view_center_pan pins the active selection to the viewport center: its column's
+// left edge sits on the vertical center line, so a name growing or shrinking
+// never shifts the cascade, and its row sits on the middle line.
 view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return}
 	column := &tree.columns[tree.active]
 	left := COLUMN_PAD
 	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
-	tree.pan_x = metrics.width/2-(left+column.width/2)
+	tree.pan_x = metrics.width/2-left
 	if column.selected < 0 {return}
 	center := (CHROME_HEIGHT+(metrics.height-metrics.bar_height))/2
 	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
