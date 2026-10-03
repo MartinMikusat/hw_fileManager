@@ -163,6 +163,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
+	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll_wheel), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate, view_class, false}
 	if !host_add_method(view_class, "flagsChanged:", rawptr(host_flags_changed), "v@:@") {return delegate, view_class, false}
 	NS.objc_registerClassPair(view_class)
@@ -427,8 +428,11 @@ host_render :: proc() {
 	host.frame_animated = host.tree.pan_moving
 	if host.tree.pan_moving {host_request_frames(1)}
 	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
-	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
 	host.preview_shown = host.preview_shown && host.preview.kind != .None
+	if !preview_text_shown(&host) {host.preview.focused = false}
+	preview_scroll_to(&host, host.preview.scroll)
+	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
+	preview_view.focused = host.preview.focused
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host_settings_view(),
 		settings_open = host.settings_open,
@@ -724,6 +728,14 @@ host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	host_update_hover(host_pointer_from_event(event))
 }
 
+host_scroll_wheel :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	point := host_pointer_from_event(event)
+	if preview_scroll_wheel(&host, point.x, point.y, f32(event->scrollingDeltaY()), bool(event->hasPreciseScrollingDeltas())) {
+		host_request_frames(2)
+	}
+}
+
 host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
 	host_update_hover(host_pointer_from_event(event))
@@ -791,6 +803,10 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			}
 		}
 	}
+	if host.input_mode == .None && !command && preview_handle_key(&host, key) {
+		host_request_frames(2)
+		return
+	}
 	switch {
 	case command && key == 13:
 		host.window->close()
@@ -818,13 +834,13 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 123:
 		_ = tree_collapse(&host.tree)
 	case key == 124:
-		_ = tree_expand(&host.tree)
+		if !preview_focus_begin(&host) {_ = tree_expand(&host.tree)}
 	case key == 36, key == 76:
 		switch host.input_mode {
 		case .Cd:     cd_run(&host)
 		case .Search:
 			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
-		case .None:   _ = tree_expand(&host.tree)
+		case .None:   if !preview_focus_begin(&host) {_ = tree_expand(&host.tree)}
 		}
 	case key == 48:
 		if host.input_mode == .Cd {cd_complete(&host)}

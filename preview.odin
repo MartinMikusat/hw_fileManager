@@ -55,8 +55,7 @@ foreign coregraphics {
 CF_NUMBER_SINT32_TYPE :: 3
 CG_ALPHA_PREMULTIPLIED_LAST :: u32(1)
 
-PREVIEW_TEXT_BYTES :: 64*1024
-PREVIEW_TEXT_LINES :: 400
+PREVIEW_TEXT_BYTES :: 1024*1024
 PREVIEW_TAB_SPACES :: "    "
 PREVIEW_IMAGE_FILE_MAX :: 256*1024*1024
 // Longest side of the decoded thumbnail, in pixels.
@@ -87,6 +86,10 @@ Preview :: struct {
 	texture:  ^MTL.Texture,
 	width:    int,
 	height:   int,
+	// First visible line of a text preview; fractional while a trackpad scroll is under way.
+	scroll:   f32,
+	// The preview has the keyboard focus; it ends with the selection that loaded it.
+	focused:  bool,
 }
 
 preview_clear :: proc(preview: ^Preview) {
@@ -242,7 +245,7 @@ preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 	preview.kinds = highlight_kinds(highlight_language(entry.name), text)
 	preview.lines = make([dynamic]string, 0, 64)
 	rest := text
-	for len(rest) > 0 && len(preview.lines) < PREVIEW_TEXT_LINES {
+	for len(rest) > 0 {
 		line, found := strings.split_iterator(&rest, "\n")
 		if !found {break}
 		append(&preview.lines, line)

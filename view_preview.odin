@@ -1,5 +1,6 @@
 package file_manager
 
+import "core:fmt"
 import "core:strings"
 import "core:unicode/utf8"
 import coretext "ui_framework:coretext"
@@ -18,6 +19,8 @@ Preview_View :: struct {
 	height:  int,
 	// Backing pixels per point, so images are never shown larger than 1:1.
 	scale:   f32,
+	scroll:  f32,
+	focused: bool,
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
@@ -47,11 +50,20 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	case .Text:
 		rows := int(area.h/tree.row_height)
 		columns := int(area.w/metrics.char_advance)
-		for line, index in preview.lines {
-			if index >= rows {break}
+		first := int(preview.scroll)
+		for index := first; index < min(len(preview.lines), first+rows+2); index += 1 {
+			line := preview.lines[index]
 			if len(line) == 0 {continue}
 			offset := int(uintptr(raw_data(line))-uintptr(raw_data(preview.text)))
-			view_draw_code_line(tree, list, text, line, preview.kinds[offset:offset+len(line)], area.x, area.y+f32(index)*tree.row_height, columns, metrics)
+			view_draw_code_line(tree, list, text, line, preview.kinds[offset:offset+len(line)], area.x, area.y+(f32(index)-preview.scroll)*tree.row_height, columns, metrics)
+		}
+		if len(preview.lines) > rows {
+			position := fmt.tprintf("%d/%d", min(first+1, len(preview.lines)), len(preview.lines))
+			width := f32(len(position))*metrics.char_advance
+			view_draw_text(text, list, position, area.x+area.w-width, area.y+area.h-tree.row_height, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+		}
+		if preview.focused {
+			draw.solid(list, view_rect_draw({rect.x+rect.w-3, rect.y, 3, rect.h}, metrics), COLOR_SELECTED_ROW, edge_softness = 0)
 		}
 	case .Image:
 		natural_w := f32(preview.width)/preview.scale
@@ -65,7 +77,7 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 
 // preview_view_make registers the preview texture for this frame's draw pass.
 preview_view_make :: proc(preview: ^Preview, renderer: ^metal.Renderer, scale: f32) -> Preview_View {
-	view := Preview_View{kind = preview.kind, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale}
+	view := Preview_View{kind = preview.kind, scroll = preview.scroll, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale}
 	if preview.kind == .Image {view.texture = metal.register_texture(renderer, rawptr(preview.texture))}
 	return view
 }
