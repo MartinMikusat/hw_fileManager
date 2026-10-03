@@ -119,7 +119,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if target == nil {return false}
 	defer metal.release(target)
 
-	metrics := View_Metrics{width = f32(width), height = f32(height)}
+	metrics := View_Metrics{width = f32(width), height = f32(height), row_height = tree.row_height}
 	for _ in 0 ..< 3 {
 		metal.begin_texture_frame(&renderer)
 		coretext.begin_frame(&text, scale, metal.atlas_io(&renderer))

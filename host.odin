@@ -250,6 +250,7 @@ host_render :: proc() {
 		width = width,
 		height = height,
 		char_advance = measure_char_advance(&host.text, host.tree.font_size),
+		row_height = host.tree.row_height,
 	}
 	host.char_advance = metrics.char_advance
 	view_layout(&host.tree, metrics)
@@ -289,6 +290,7 @@ host_update_hover :: proc(point: ui.Vec2) {
 		width = host.view_width,
 		height = host.view_height,
 		char_advance = host.char_advance,
+		row_height = host.tree.row_height,
 	}
 	control := -1
 	settings_button := false
@@ -360,6 +362,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		width = host.view_width,
 		height = host.view_height,
 		char_advance = host.char_advance,
+		row_height = host.tree.row_height,
 	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)

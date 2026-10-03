@@ -14,7 +14,9 @@ kind. Source lives at the repository root (`package file_manager`).
 - Rendering is `hw_odin_ui_framework` (`draw`, `coretext`, `metal`, `macos`) driven
   directly. There is no hw_clay: `view.odin` computes every column, row, and connector
   position itself. Do not add a layout library.
-- Reference screenshots for the visual target are in `references/`.
+- `references/*.jpg` is the binding visual spec: match it 1:1 (palette, type
+  weight, selection treatment, connector geometry, alignment), deriving the
+  theme constants from the images. The app-authoring defaults yield to it.
 - The operation journal (`hw_odin_devlog`) is the dev error and debug path.
   `dev.sh` writes `.dev-logs/app/devlog.jsonl`; read it first when a run misbehaves.
   Record failures once at their root cause, and never put credentials, payloads or

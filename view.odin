@@ -9,6 +9,7 @@ View_Metrics :: struct {
 	width:        f32,
 	height:       f32,
 	char_advance: f32,
+	row_height:   f32,
 }
 
 Settings_Hot :: enum {
@@ -42,6 +43,11 @@ MAXIMIZE_PATHS :: [][4]f32{
 	{20.0, 20.0, 20.0, 17.0},
 }
 ICON_BOX :: f32(24)
+ICON_STROKE :: f32(1.5)
+
+SETTINGS_LABEL :: "[Settings]"
+MINUS_LABEL :: "[-]"
+PLUS_LABEL :: "[+]"
 
 Settings_Layout :: struct {
 	panel:     draw.Rect,
@@ -115,9 +121,10 @@ view_rect_draw :: proc(rect: draw.Rect, metrics: View_Metrics) -> draw.Rect {
 }
 
 view_control_rect :: proc(index: int, metrics: View_Metrics) -> draw.Rect {
-	x := CONTROL_INSET+f32(index)*(CONTROL_SIZE+CONTROL_GAP)
-	y := (CHROME_HEIGHT-CONTROL_SIZE)/2
-	return {x, metrics.height-y-CONTROL_SIZE, CONTROL_SIZE, CONTROL_SIZE}
+	height := min(metrics.row_height, CHROME_HEIGHT)
+	x := (CONTROL_INSET_CELLS+f32(index)*CONTROL_STRIDE_CELLS)*metrics.char_advance
+	y := (CHROME_HEIGHT-height)/2
+	return {x, metrics.height-y-height, CONTROL_CELLS*metrics.char_advance, height}
 }
 
 view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
@@ -132,13 +139,11 @@ view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
 }
 
 view_settings_control_rect :: proc(metrics: View_Metrics) -> draw.Rect {
-	y := (CHROME_HEIGHT-CONTROL_SIZE)/2
-	return {
-		metrics.width-CONTROL_INSET-CONTROL_SIZE,
-		metrics.height-y-CONTROL_SIZE,
-		CONTROL_SIZE,
-		CONTROL_SIZE,
-	}
+	height := min(metrics.row_height, CHROME_HEIGHT)
+	width := f32(len(SETTINGS_LABEL))*metrics.char_advance
+	x := metrics.width-CONTROL_INSET_CELLS*metrics.char_advance-width
+	y := (CHROME_HEIGHT-height)/2
+	return {x, metrics.height-y-height, width, height}
 }
 
 view_settings_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> bool {
@@ -148,15 +153,17 @@ view_settings_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> bool 
 }
 
 view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Layout {
+	ch := metrics.char_advance
 	row := tree.row_height
-	pad := COLUMN_PAD
-	height := 3*row+4*pad
-	panel := draw.Rect{(metrics.width-SETTINGS_PANEL_WIDTH)/2, (metrics.height-height)/2, SETTINGS_PANEL_WIDTH, height}
+	pad := 2*ch
+	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
+	height := 4*row+2*pad
+	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	title_top := panel.y+pad
 	row_top := title_top+row
-	control := max(row, f32(18))
-	plus := draw.Rect{panel.x+panel.w-pad-control, row_top, control, control}
-	minus := draw.Rect{plus.x-control-COLUMN_GAP, row_top, control, control}
+	button := 3*ch
+	plus := draw.Rect{panel.x+panel.w-pad-button, row_top, button, row}
+	minus := draw.Rect{plus.x-button-ch, row_top, button, row}
 	return {
 		panel = panel,
 		title_top = title_top,
@@ -200,51 +207,45 @@ view_draw_text :: proc(
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
 }
 
-view_draw_glyph :: proc(list: ^draw.List, paths: [][4]f32, center: draw.Rect, color: draw.Color) {
-	scale := CONTROL_SIZE*0.62/ICON_BOX
-	cx := center.x+center.w/2
-	cy := center.y+center.h/2
+view_draw_glyph :: proc(list: ^draw.List, paths: [][4]f32, box: draw.Rect, color: draw.Color) {
+	size := min(box.w, box.h)
+	scale := size/ICON_BOX
+	left := box.x+(box.w-size)/2
+	bottom := box.y+(box.h-size)/2
 	draw.path_begin(list)
 	for segment in paths {
-		draw.path_move_to(list, cx+(segment[0]-ICON_BOX/2)*scale, cy+(segment[1]-ICON_BOX/2)*scale)
-		draw.path_line_to(list, cx+(segment[2]-ICON_BOX/2)*scale, cy+(segment[3]-ICON_BOX/2)*scale)
+		draw.path_move_to(list, left+segment[0]*scale, bottom+size-segment[1]*scale)
+		draw.path_line_to(list, left+segment[2]*scale, bottom+size-segment[3]*scale)
 	}
-	draw.path_stroke(list, color, CONTROL_SIZE*0.1, .Round, .Round)
+	draw.path_stroke(list, color, ICON_STROKE*scale, .Round, .Round)
 }
 
 view_draw_controls :: proc(list: ^draw.List, metrics: View_Metrics, hot: Hot_State) {
 	for index in 0 ..< 3 {
 		rect := view_control_rect(index, metrics)
-		color := COLOR_CONTROL_CLOSE
+		if index == hot.control {draw.solid(list, rect, COLOR_TEXT, edge_softness = 0)}
+		color := index == hot.control ? COLOR_BACKGROUND : COLOR_TEXT
 		switch index {
-		case 1: color = COLOR_CONTROL_MIN
-		case 2: color = COLOR_CONTROL_ZOOM
+		case CONTROL_CLOSE:    view_draw_glyph(list, XMARK_PATHS, rect, color)
+		case CONTROL_MINIMIZE: view_draw_glyph(list, MINUS_PATHS, rect, color)
+		case CONTROL_ZOOM:     view_draw_glyph(list, MAXIMIZE_PATHS, rect, color)
 		}
-		if index == hot.control {color = {1.0, 1.0, 1.0, 1.0}}
-		draw.solid(list, rect, color, corner_radius = CONTROL_SIZE/2)
-		switch index {
-		case CONTROL_CLOSE:    view_draw_glyph(list, XMARK_PATHS, rect, COLOR_CONTROL_EDGE)
-		case CONTROL_MINIMIZE: view_draw_glyph(list, MINUS_PATHS, rect, COLOR_CONTROL_EDGE)
-		case CONTROL_ZOOM:     view_draw_glyph(list, MAXIMIZE_PATHS, rect, COLOR_CONTROL_EDGE)
-		}
-	}
-	rect := view_settings_control_rect(metrics)
-	if hot.settings_button {draw.solid(list, rect, COLOR_ROW_HOT, corner_radius = 4)}
-	for index in 0 ..< 3 {
-		bar := draw.Rect{rect.x+rect.w*0.22, rect.y+rect.h*0.3+f32(index)*rect.h*0.2, rect.w*0.56, 1.5}
-		draw.solid(list, bar, hot.settings_button ? COLOR_SELECTED : COLOR_DIM)
 	}
 }
 
 view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, hot: Hot_State) {
-	draw.solid(list, {0, metrics.height-CHROME_HEIGHT, metrics.width, CHROME_HEIGHT}, COLOR_CHROME)
-	draw.solid(list, {0, metrics.height-CHROME_HEIGHT-1, metrics.width, 1}, COLOR_CHROME_EDGE)
+	draw.solid(list, {0, metrics.height-CHROME_HEIGHT, metrics.width, CHROME_HEIGHT}, COLOR_CHROME, edge_softness = 0)
+	draw.solid(list, {0, metrics.height-CHROME_HEIGHT-1, metrics.width, 1}, COLOR_CHROME_EDGE, edge_softness = 0)
 	view_draw_controls(list, metrics, hot)
+	settings := view_settings_control_rect(metrics)
+	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
+	settings_top := metrics.height-settings.y-settings.h
+	view_draw_text(text, list, SETTINGS_LABEL, settings.x, settings_top, settings.h, tree.font_size, hot.settings_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	title := tree_root_directory(tree)
 	if entry, ok := tree_selected_entry(tree); ok {title = entry.path}
 	if len(title) == 0 {return}
-	x := CONTROL_INSET+3*(CONTROL_SIZE+CONTROL_GAP)+CONTROL_GAP
-	available := max(metrics.width-x-2*CONTROL_INSET-CONTROL_SIZE-COLUMN_PAD, 0)
+	x := (CONTROL_INSET_CELLS+3*CONTROL_STRIDE_CELLS)*metrics.char_advance
+	available := max(settings.x-x-metrics.char_advance, 0)
 	view_draw_text(text, list, title, x, 0, CHROME_HEIGHT, tree.font_size, COLOR_DIM, metrics.height, available)
 }
 
@@ -284,13 +285,6 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
-view_draw_settings_button :: proc(list: ^draw.List, rect: draw.Rect, plus: bool, hot: bool) {
-	color := hot ? COLOR_ROW_HOT : COLOR_ROW
-	draw.solid(list, rect, color, corner_radius = 6)
-	draw.solid(list, {rect.x+rect.w/2-7, rect.y+rect.h/2-1, 14, 2}, COLOR_TEXT)
-	if plus {draw.solid(list, {rect.x+rect.w/2-1, rect.y+rect.h/2-7, 2, 14}, COLOR_TEXT)}
-}
-
 view_draw_settings :: proc(
 	tree: ^Tree,
 	list: ^draw.List,
@@ -302,17 +296,21 @@ view_draw_settings :: proc(
 ) {
 	if !settings_open {return}
 	layout := view_settings_layout(tree, metrics)
-	draw.solid(list, {0, 0, metrics.width, metrics.height}, COLOR_MODAL_BACKDROP)
-	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_PANEL, corner_radius = 8)
-	draw.solid(list, view_rect_draw({layout.panel.x, layout.title_top, layout.panel.w, 1}, metrics), COLOR_PANEL_EDGE)
-	view_draw_text(text, list, "Settings", layout.panel.x+COLUMN_PAD, layout.title_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	view_draw_text(text, list, "Font size", layout.panel.x+COLUMN_PAD, layout.row_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	value := fmt.tprintf("%d", settings.font_size)
-	value_x := (layout.minus.x+layout.minus.w+layout.plus.x)/2-f32(len(value))*metrics.char_advance/2
-	view_draw_text(text, list, value, value_x, layout.row_top, tree.row_height, tree.font_size, COLOR_SELECTED, metrics.height)
-	view_draw_settings_button(list, view_rect_draw(layout.minus, metrics), false, hot.settings_hot == .Minus)
-	view_draw_settings_button(list, view_rect_draw(layout.plus, metrics), true, hot.settings_hot == .Plus)
-	view_draw_text(text, list, "⌘, opens - esc closes", layout.panel.x+COLUMN_PAD, layout.hint_top, tree.row_height, tree.font_size*0.85, COLOR_DIM, metrics.height)
+	draw.solid(list, {0, 0, metrics.width, metrics.height}, COLOR_MODAL_BACKDROP, edge_softness = 0)
+	panel := view_rect_draw(layout.panel, metrics)
+	draw.solid(list, panel, COLOR_TEXT, edge_softness = 0)
+	draw.solid(list, {panel.x+1, panel.y+1, max(panel.w-2, 0), max(panel.h-2, 0)}, COLOR_BACKGROUND, edge_softness = 0)
+	left := layout.panel.x+2*metrics.char_advance
+	view_draw_text(text, list, "Settings", left, layout.title_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	label := fmt.tprintf("Font size: %d", settings.font_size)
+	view_draw_text(text, list, label, left, layout.row_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	minus := view_rect_draw(layout.minus, metrics)
+	plus := view_rect_draw(layout.plus, metrics)
+	if hot.settings_hot == .Minus {draw.solid(list, minus, COLOR_TEXT, edge_softness = 0)}
+	if hot.settings_hot == .Plus {draw.solid(list, plus, COLOR_TEXT, edge_softness = 0)}
+	view_draw_text(text, list, MINUS_LABEL, layout.minus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Minus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, PLUS_LABEL, layout.plus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Plus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 }
 
 view_draw :: proc(

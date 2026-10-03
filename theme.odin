@@ -12,9 +12,9 @@ ROW_HEIGHT_RATIO :: f32(22.0/14.0)
 COLUMN_GAP :: f32(44)
 COLUMN_PAD :: f32(10)
 CHROME_HEIGHT :: f32(28)
-CONTROL_SIZE :: f32(11)
-CONTROL_GAP :: f32(8)
-CONTROL_INSET :: f32(12)
+CONTROL_INSET_CELLS :: f32(1)
+CONTROL_CELLS :: f32(3)
+CONTROL_STRIDE_CELLS :: f32(4)
 
 COLOR_BACKGROUND    :: draw.Color{0.043, 0.043, 0.051, 1.0}
 COLOR_CHROME        :: draw.Color{0.078, 0.078, 0.090, 1.0}
@@ -30,21 +30,12 @@ COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
 COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
 COLOR_CONNECTOR     :: draw.Color{0.243, 0.400, 0.663, 1.0}
 COLOR_CONNECTOR_HOT :: draw.Color{0.494, 0.694, 0.996, 1.0}
-COLOR_CONTROL_CLOSE :: draw.Color{0.937, 0.443, 0.435, 1.0}
-COLOR_CONTROL_MIN   :: draw.Color{0.949, 0.749, 0.325, 1.0}
-COLOR_CONTROL_ZOOM  :: draw.Color{0.404, 0.780, 0.404, 1.0}
-COLOR_CONTROL_EDGE  :: draw.Color{0.0, 0.0, 0.0, 0.35}
 
 CONNECTOR_WIDTH :: f32(1.5)
 MIN_COLUMN_WIDTH :: f32(140)
 SETTINGS_PANEL_WIDTH :: f32(380)
 
-COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.55}
-COLOR_PANEL         :: draw.Color{0.106, 0.106, 0.122, 1.0}
-COLOR_PANEL_EDGE    :: draw.Color{0.196, 0.196, 0.224, 1.0}
-COLOR_ROW           :: draw.Color{0.145, 0.145, 0.169, 1.0}
-COLOR_ROW_EDGE      :: draw.Color{0.243, 0.243, 0.278, 1.0}
-COLOR_ROW_HOT       :: draw.Color{0.216, 0.243, 0.310, 1.0}
+COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.35}
 
 row_height_for :: proc(font_size: f32) -> f32 {
 	return font_size*ROW_HEIGHT_RATIO
