@@ -61,8 +61,11 @@ Host :: struct {
 	cd_completing:  bool,
 	place_pending:  string,
 	place_since:    time.Tick,
-	clip_path:      string,
-	clip_cut:       bool,
+	clip_paths:      [dynamic]string,
+	clip_cut:        bool,
+	gather_paths:    [dynamic]string,
+	gather_hot_row:  int,
+	gather_hot_clear: bool,
 	edit_mode:      Edit_Mode,
 	edit_value:     string,
 	text_state:     text_input.State,
@@ -233,6 +236,7 @@ host_initialize :: proc() -> bool {
 	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
 
 	tree_init(&host.tree)
+	host.gather_hot_row = -1
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
@@ -311,7 +315,8 @@ host_flush_place :: proc() {
 
 host_shutdown :: proc() {
 	if !host.initialized {return}
-	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
+	action_clear_clip(&host)
+	gather_destroy(&host.gather_paths)
 	edit_cancel(&host)
 	input_destroy(&host)
 	preview_clear(&host.preview)
@@ -423,8 +428,13 @@ host_render :: proc() {
 		preview = preview_view,
 		preview_rect = host.preview_rect,
 		preview_shown = host.preview_shown,
-		clip_path = host.clip_path,
+		clip_paths = host.clip_paths[:],
 		clip_cut = host.clip_cut,
+		gathered = len(host.gather_paths) > 0,
+		current_gathered = action_current_gathered(&host),
+		gather_paths = host.gather_paths[:],
+		gather_hot_row = host.gather_hot_row,
+		gather_hot_clear = host.gather_hot_clear,
 		edit = edit,
 		notice = notice,
 		notice_error = notice_error,
@@ -469,22 +479,32 @@ host_update_hover :: proc(point: ui.Vec2) {
 	settings_hot := Settings_Hot.None
 	action := host.hot_action
 	action_hot := false
+	gather_row := -1
+	gather_clear := false
 	if host.settings_open {
 		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics), point)
 	} else {
+		if len(host.gather_paths) > 0 {
+			layout := gather_panel_layout(metrics, len(host.gather_paths))
+			row, clear, _ := gather_panel_at(layout, point)
+			if clear {gather_clear = true} else if row >= 0 {gather_row = row}
+		}
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
-		if kind, inside := action_bar_at(metrics, point); inside && action_available(&host.tree, host.clip_path, kind) {
+		gathered := len(host.gather_paths) > 0
+		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(&host)); inside && action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
 	}
-	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && action == host.hot_action && action_hot == host.hot_action_hot {return}
+	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && action == host.hot_action && action_hot == host.hot_action_hot && gather_row == host.gather_hot_row && gather_clear == host.gather_hot_clear {return}
 	host.hot_control = control
 	host.hot_settings_button = settings_button
 	host.hot_settings_hot = settings_hot
 	host.hot_action = action
 	host.hot_action_hot = action_hot
+	host.gather_hot_row = gather_row
+	host.gather_hot_clear = gather_clear
 	host_request_frames(1)
 }
 
@@ -581,6 +601,20 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 		return
 	}
+	if len(host.gather_paths) > 0 {
+		layout := gather_panel_layout(metrics, len(host.gather_paths))
+		if row, clear, inside := gather_panel_at(layout, point); inside {
+			if clear {
+				gather_clear(&host.gather_paths)
+			} else if row >= 0 {
+				gather_remove(&host.gather_paths, host.gather_paths[row])
+			}
+			host.gather_hot_row = -1
+			host.gather_hot_clear = false
+			host_request_frames(2)
+			return
+		}
+	}
 	if control := view_control_at(point, metrics); control >= 0 {
 		host_apply_control(control)
 		return
@@ -599,7 +633,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if point.y >= host.view_height-host.tree.row_height {
-		if kind, inside := action_bar_at(metrics, point); inside {action_perform(&host, kind)}
+		if kind, inside := action_bar_at(metrics, point, len(host.gather_paths) > 0, action_current_gathered(&host)); inside {action_perform(&host, kind)}
 		return
 	}
 	if point.y >= host.view_height-2*host.tree.row_height {
@@ -678,7 +712,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 				switch {
 				case text[0] == '/' && host.input_mode == .None:
 					search_begin(&host)
-				case text[0] >= '1' && text[0] <= '5' && host.input_mode == .None:
+				case text[0] >= '1' && text[0] <= '8' && host.input_mode == .None:
 					// Numbered action shortcuts are handled in the switch below.
 				case host.input_mode == .None:
 					input_begin(&host, .Cd)
@@ -726,7 +760,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if host.input_mode == .Cd {cd_complete(&host)}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
-	case key == 18, key == 19, key == 20, key == 21, key == 23:
+	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28:
 		if host.input_mode == .None {
 			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind)}
 		}

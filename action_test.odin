@@ -27,7 +27,7 @@ action_cut_then_paste_moves_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, tree_move(&host.tree, 1))
 
 	action_clip(&host, true)
-	testing.expect(t, strings.has_suffix(host.clip_path, "/alpha/one.txt"))
+	testing.expect(t, len(host.clip_paths) == 1 && strings.has_suffix(host.clip_paths[0], "/alpha/one.txt"))
 
 	testing.expect(t, tree_select_name(&host.tree, 0, "beta"))
 	testing.expect(t, tree_expand(&host.tree))

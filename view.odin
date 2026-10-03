@@ -1,6 +1,7 @@
 package file_manager
 
 import "core:fmt"
+import "core:path/filepath"
 import "core:time"
 import coretext "ui_framework:coretext"
 import text_input "components:text_input"
@@ -44,8 +45,13 @@ View_State :: struct {
 	input_caret:      int,
 	input_sel_start:  int,
 	input_sel_end:    int,
-	clip_path:        string,
+	clip_paths:        []string,
 	clip_cut:         bool,
+	gathered:         bool,
+	current_gathered: bool,
+	gather_paths:     []string,
+	gather_hot_row:   int,
+	gather_hot_clear: bool,
 	edit:             View_Edit,
 	notice:           string,
 	notice_error:     bool,
@@ -303,12 +309,19 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
 
+view_draw_gather_marker :: proc(list: ^draw.List, metrics: View_Metrics, x, row_top, row_height: f32) {
+	draw.solid(list, view_rect_draw({x, row_top+(row_height-5)/2, 5, 5}, metrics), COLOR_RED, edge_softness = 0)
+}
+
 view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, blocks: []Block, x, top, bottom: f32, metrics: View_Metrics, state: View_State) {
 	searching := state.input_mode == .Search && len(state.input) > 0
 	for block in blocks {
 		for entry, row in block.entries {
 			row_top := block.y+f32(row)*tree.row_height
 			if row_top+tree.row_height < top || row_top > bottom {continue}
+			if path_list_contains(state.gather_paths, entry.path) {
+				view_draw_gather_marker(list, metrics, x-COLUMN_PAD+3, row_top, tree.row_height)
+			}
 			max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			color := entry_color(entry.modified, state.now, entry.hidden)
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
@@ -348,6 +361,9 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		if selected {
 			draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTION_BG)
 		}
+		if path_list_contains(state.gather_paths, entry.path) {
+			view_draw_gather_marker(list, metrics, column.x-COLUMN_PAD+3, row_top, tree.row_height)
+		}
 		color := entry_color(entry.modified, state.now, entry.hidden)
 		max_width := f32(0)
 		if selected {
@@ -357,8 +373,8 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 			if completing && entry.is_dir && name_has_prefix_fold(entry.name, state.input) {color = COLOR_SEARCH}
 		}
-		if state.clip_cut && len(state.clip_path) > 0 && entry.path == state.clip_path {
-			color = COLOR_COPY
+		if state.clip_cut && path_list_contains(state.clip_paths, entry.path) {
+			color = COLOR_RED
 		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
@@ -385,7 +401,7 @@ view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^
 	if edit.selection_end > edit.selection_start {
 		draw.solid(list, {left+start_x, row_bottom, end_x-start_x, tree.row_height}, COLOR_SELECTION_INK, edge_softness = 0)
 	}
-	view_draw_text(text, list, edit.text, left, row_top, tree.row_height, tree.font_size, edit.error ? COLOR_ERROR : COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, edit.text, left, row_top, tree.row_height, tree.font_size, edit.error ? COLOR_RED : COLOR_TEXT, metrics.height)
 	draw.solid(list, {left+caret_x, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
 }
 
@@ -426,16 +442,17 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 }
 
 view_draw_actions :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
-	rects := action_bar_rects(metrics)
-	for kind in Action_Kind {
-		rect := rects[int(kind)]
-		available := action_available(tree, state.clip_path, kind)
+	bar := action_bar_layout(metrics, state.gathered, state.current_gathered)
+	for index in 0 ..< bar.count {
+		kind := bar.kinds[index]
+		rect := bar.rects[index]
+		available := action_available(tree, state.gathered, len(state.clip_paths) > 0, kind)
 		color := available ? COLOR_TEXT : COLOR_DIM
 		if available && state.hot.action_hot && state.hot.action == kind {
 			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
 			color = COLOR_BACKGROUND
 		}
-		view_draw_text(text, list, action_label(kind), rect.x, rect.y, rect.h, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, action_label(kind, state.current_gathered), rect.x, rect.y, rect.h, tree.font_size, color, metrics.height)
 	}
 }
 
@@ -460,10 +477,31 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true, 1+state.input_caret, 1+state.input_sel_start, 1+state.input_sel_end)
 	case .None:
 		if len(state.notice) > 0 {
-			view_bar_text(text, list, state.notice, tree, metrics, state.notice_error ? COLOR_ERROR : COLOR_DIM, false)
+			view_bar_text(text, list, state.notice, tree, metrics, state.notice_error ? COLOR_RED : COLOR_DIM, false)
 		}
 	}
 	view_draw_actions(tree, list, text, metrics, state)
+}
+
+view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
+	count := len(state.gather_paths)
+	if count == 0 {return}
+	layout := gather_panel_layout(metrics, count)
+	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_SELECTION_BG, edge_softness = 0)
+	view_draw_text(text, list, fmt.tprintf("Gathered (%d)", count), layout.header.x+COLUMN_PAD, layout.header.y, layout.header.h, tree.font_size, COLOR_TEXT, metrics.height)
+	if state.gather_hot_clear {draw.solid(list, view_rect_draw(layout.clear, metrics), COLOR_TEXT, edge_softness = 0)}
+	view_draw_text(text, list, GATHER_CLEAR_LABEL, layout.clear.x, layout.clear.y, layout.clear.h, tree.font_size, state.gather_hot_clear ? COLOR_BACKGROUND : COLOR_DIM, metrics.height)
+	max_width := f32(NAME_MAX_CHARS)*metrics.char_advance
+	for index in 0 ..< layout.count {
+		rect := layout.rows[index]
+		hot := index == state.gather_hot_row
+		if hot {draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		view_draw_text(text, list, filepath.base(state.gather_paths[index]), rect.x+COLUMN_PAD, rect.y, rect.h, tree.font_size, hot ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height, max_width)
+	}
+	if layout.overflow > 0 {
+		last := layout.rows[layout.count-1]
+		view_draw_text(text, list, fmt.tprintf("+%d more", layout.overflow), layout.panel.x+COLUMN_PAD, last.y+last.h, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+	}
 }
 
 view_draw_settings :: proc(
@@ -508,5 +546,6 @@ view_draw :: proc(
 	}
 	if state.preview_shown {view_draw_preview(tree, list, text, state.preview_rect, state.preview, metrics)}
 	view_draw_bar(tree, list, text, metrics, state)
+	view_draw_gather(tree, list, text, metrics, state)
 	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot)
 }

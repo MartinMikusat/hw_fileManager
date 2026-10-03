@@ -1,7 +1,9 @@
 package file_manager
 
+import "base:intrinsics"
 import "core:os"
 import "core:slice"
+import NS "core:sys/darwin/Foundation"
 import "core:sys/posix"
 import "core:strings"
 import "core:time"
@@ -87,6 +89,25 @@ copy_item :: proc(source, destination: string) -> i32 {
 	to := strings.clone_to_cstring(destination, context.temp_allocator)
 	if copyfile(from, to, nil, COPYFILE_FLAGS) == 0 {return 0}
 	return i32(posix.errno())
+}
+
+path_list_contains :: proc(paths: []string, path: string) -> bool {
+	for entry in paths {
+		if entry == path {return true}
+	}
+	return false
+}
+
+// trash_item moves a file or folder to the Trash through NSFileManager, so a
+// bulk mistake is recoverable. It returns false when the move fails.
+trash_item :: proc(path: string) -> bool {
+	pool := NS.scoped_autoreleasepool()
+	_ = pool
+	manager := intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSFileManager"), "defaultManager")
+	if manager == nil {return false}
+	url := intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSURL"), "fileURLWithPath:", edit_nsstring(path))
+	if url == nil {return false}
+	return bool(intrinsics.objc_send(NS.BOOL, manager, "trashItemAtURL:resultingItemURL:error:", url, NS.id(nil), NS.id(nil)))
 }
 
 // path_taken reports whether anything occupies the path, a dangling symlink

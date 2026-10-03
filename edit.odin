@@ -161,6 +161,10 @@ edit_commit :: proc(host: ^Host) {
 		return
 	}
 	devlog.succeeded(devlog.global(), {feature = "files", operation = "edit_name"}, {file_id = name, stage = mode == .Rename ? "rename" : "new_file"})
+	if mode == .Rename {
+		gather_remap(&host.gather_paths, original, destination)
+		gather_remap(&host.clip_paths, original, destination)
+	}
 	column := host.edit_column
 	edit_cancel(host)
 	_ = tree_refresh(&host.tree)

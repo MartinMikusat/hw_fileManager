@@ -14,12 +14,33 @@ Action_Kind :: enum {
 	Paste,
 	Rename,
 	NewFile,
+	Gather,
+	Trash,
+	Clear,
 }
 
-ACTION_LABELS := [5]string{"[1 Copy]", "[2 Cut]", "[3 Paste]", "[4 Rename]", "[5 New File]"}
+// ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
+// something is gathered. Clear lives in the gather panel, not the bar.
+ACTION_BAR_ORDER := [7]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash}
+GATHER_CLEAR_LABEL :: "[8 Clear]"
 
-action_label :: proc(kind: Action_Kind) -> string {
-	return ACTION_LABELS[int(kind)]
+action_bar_kinds :: proc(gathered: bool) -> []Action_Kind {
+	if gathered {return ACTION_BAR_ORDER[:]}
+	return ACTION_BAR_ORDER[:6]
+}
+
+action_label :: proc(kind: Action_Kind, ungather := false) -> string {
+	switch kind {
+	case .Copy:    return "[1 Copy]"
+	case .Cut:     return "[2 Cut]"
+	case .Paste:   return "[3 Paste]"
+	case .Rename:  return "[4 Rename]"
+	case .NewFile: return "[5 New File]"
+	case .Gather:  return ungather ? "[6 Ungather]" : "[6 Gather]"
+	case .Trash:   return "[7 Trash]"
+	case .Clear:   return GATHER_CLEAR_LABEL
+	}
+	return ""
 }
 
 action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
@@ -29,118 +50,215 @@ action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	case 20: return .Paste, true
 	case 21: return .Rename, true
 	case 23: return .NewFile, true
+	case 22: return .Gather, true
+	case 26: return .Trash, true
+	case 28: return .Clear, true
 	}
 	return .Copy, false
 }
 
-action_available :: proc(tree: ^Tree, clip_path: string, kind: Action_Kind) -> bool {
+action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kind) -> bool {
 	switch kind {
-	case .Copy, .Cut, .Rename:
+	case .Copy, .Cut:
+		if gathered {return true}
+		_, ok := tree_selected_entry(tree)
+		return ok
+	case .Rename, .Gather:
 		_, ok := tree_selected_entry(tree)
 		return ok
 	case .Paste:
-		return len(clip_path) > 0
+		return has_clip
 	case .NewFile:
 		return tree.active >= 0 && tree.active < len(tree.columns)
+	case .Trash, .Clear:
+		return gathered
 	}
 	return false
 }
 
-// action_bar_rects are top-origin, in the bottom row of the bar.
-action_bar_rects :: proc(metrics: View_Metrics) -> [5]draw.Rect {
-	rects: [5]draw.Rect
-	top := metrics.height-metrics.row_height
-	x := COLUMN_PAD
-	for kind in Action_Kind {
-		width := f32(len(action_label(kind)))*metrics.char_advance
-		rects[int(kind)] = {x, top, width, metrics.row_height}
-		x += width+ACTION_GAP_CELLS*metrics.char_advance
-	}
-	return rects
+ACTION_MAX :: 7
+
+Action_Bar :: struct {
+	kinds: [ACTION_MAX]Action_Kind,
+	rects: [ACTION_MAX]draw.Rect,
+	count: int,
 }
 
-action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2) -> (Action_Kind, bool) {
+// action_bar_layout are top-origin rects in the bottom row of the bar.
+action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather: bool) -> Action_Bar {
+	kinds := action_bar_kinds(gathered)
+	bar: Action_Bar
+	bar.count = len(kinds)
+	top := metrics.height-metrics.row_height
+	x := COLUMN_PAD
+	for kind, index in kinds {
+		width := f32(len(action_label(kind, ungather)))*metrics.char_advance
+		bar.kinds[index] = kind
+		bar.rects[index] = {x, top, width, metrics.row_height}
+		x += width+ACTION_GAP_CELLS*metrics.char_advance
+	}
+	return bar
+}
+
+action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather: bool) -> (Action_Kind, bool) {
 	top := metrics.height-metrics.row_height
 	if point.y < top || point.y >= top+metrics.row_height {return .Copy, false}
-	rects := action_bar_rects(metrics)
-	for kind in Action_Kind {
-		rect := rects[int(kind)]
-		if point.x >= rect.x && point.x < rect.x+rect.w {return kind, true}
+	bar := action_bar_layout(metrics, gathered, ungather)
+	for index in 0 ..< bar.count {
+		rect := bar.rects[index]
+		if point.x >= rect.x && point.x < rect.x+rect.w {return bar.kinds[index], true}
 	}
 	return .Copy, false
 }
 
+action_current_gathered :: proc(host: ^Host) -> bool {
+	entry, ok := tree_selected_entry(&host.tree)
+	return ok && path_list_contains(host.gather_paths[:], entry.path)
+}
+
 action_perform :: proc(host: ^Host, kind: Action_Kind) {
-	if !action_available(&host.tree, host.clip_path, kind) {return}
+	gathered := len(host.gather_paths) > 0
+	if !action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {return}
 	switch kind {
 	case .Copy:    action_clip(host, false)
 	case .Cut:     action_clip(host, true)
 	case .Paste:   action_paste(host)
 	case .Rename:  edit_begin(host, .Rename)
 	case .NewFile: edit_begin(host, .NewFile)
+	case .Gather:  action_gather(host)
+	case .Trash:   action_trash(host)
+	case .Clear:   gather_clear(&host.gather_paths)
 	}
 	host_request_frames(2)
 }
 
-// action_clip marks the selection for a Cut (a pending move, drawn red). Copy is
-// silent like Finder's, and Paste duplicates.
-action_clip :: proc(host: ^Host, cut: bool) {
+// action_gather marks or unmarks the highlighted entry and steps down after a
+// mark, so a run is marked with 6, down, 6, down.
+action_gather :: proc(host: ^Host) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok {return}
-	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
-	host.clip_path = strings.clone(entry.path, context.allocator)
+	if path_list_contains(host.gather_paths[:], entry.path) {
+		gather_remove(&host.gather_paths, entry.path)
+		return
+	}
+	gather_add(&host.gather_paths, entry.path)
+	_ = tree_move(&host.tree, 1)
+}
+
+// action_clip marks the gathered set when there is one, otherwise the
+// highlighted entry. Cut is a pending move drawn red; Copy is silent.
+action_clip :: proc(host: ^Host, cut: bool) {
+	action_clear_clip(host)
+	if len(host.gather_paths) > 0 {
+		for path in host.gather_paths {append(&host.clip_paths, strings.clone(path, context.allocator))}
+	} else {
+		entry, ok := tree_selected_entry(&host.tree)
+		if !ok {return}
+		append(&host.clip_paths, strings.clone(entry.path, context.allocator))
+	}
 	host.clip_cut = cut
-	devlog.succeeded(devlog.global(), {feature = "files", operation = "clip"}, {file_id = entry.name, stage = cut ? "cut" : "copy"})
+	devlog.succeeded(
+		devlog.global(),
+		{feature = "files", operation = "clip"},
+		{file_id = filepath.base(host.clip_paths[len(host.clip_paths)-1]), stage = cut ? "cut" : "copy"},
+	)
+}
+
+action_clip_drop :: proc(host: ^Host, index: int) {
+	delete(host.clip_paths[index], context.allocator)
+	ordered_remove(&host.clip_paths, index)
 }
 
 action_paste :: proc(host: ^Host) {
-	if len(host.clip_path) == 0 {return}
+	if len(host.clip_paths) == 0 {return}
 	directory, has_target := action_paste_directory(&host.tree)
 	if !has_target {return}
-	source := host.clip_path
 	site := devlog.Site{feature = "files", operation = "paste"}
 	stage := host.clip_cut ? "move" : "copy"
-	file_id := filepath.base(source)
-	if directory == source || strings.has_prefix(directory, strings.concatenate({source, "/"}, context.temp_allocator)) {
-		devlog.failed(devlog.global(), site, {reason = "folder cannot be pasted into itself", severity = .Info}, {file_id = file_id, stage = stage})
-		notice_set(host, "cannot paste a folder into itself")
-		return
-	}
-	if host.clip_cut && filepath.dir(source) == directory {
-		action_clear_clip(host)
-		return
-	}
-	plain, _ := filepath.join([]string{directory, file_id}, context.temp_allocator)
-	destination := plain
-	if path_taken(plain) {
-		if host.clip_cut {
-			devlog.failed(devlog.global(), site, {reason = "destination name already exists", severity = .Info}, {file_id = file_id, stage = stage})
-			notice_set(host, "a file with that name already exists")
-			return
+	failures := 0
+	index := 0
+	for index < len(host.clip_paths) {
+		source := host.clip_paths[index]
+		file_id := filepath.base(source)
+		if directory == source || strings.has_prefix(directory, strings.concatenate({source, "/"}, context.temp_allocator)) {
+			devlog.failed(devlog.global(), site, {reason = "folder cannot be pasted into itself", severity = .Info}, {file_id = file_id, stage = stage})
+			failures += 1
+			index += 1
+			continue
 		}
-		// Finder keeps copied items on the clipboard and duplicates them with a
-		// " copy" suffix, including into the same folder.
-		destination = action_unique_destination(directory, file_id)
+		if host.clip_cut && filepath.dir(source) == directory {
+			gather_remove(&host.gather_paths, source)
+			action_clip_drop(host, index)
+			continue
+		}
+		plain, _ := filepath.join([]string{directory, file_id}, context.temp_allocator)
+		destination := plain
+		if path_taken(plain) {
+			if host.clip_cut {
+				devlog.failed(devlog.global(), site, {reason = "destination name already exists", severity = .Info}, {file_id = file_id, stage = stage})
+				failures += 1
+				index += 1
+				continue
+			}
+			// Finder keeps copied items on the clipboard and duplicates them with a
+			// " copy" suffix, including into the same folder.
+			destination = action_unique_destination(directory, file_id)
+		}
+		devlog.started(devlog.global(), site, {file_id = file_id, stage = stage})
+		paste_code: i32
+		if host.clip_cut {
+			paste_code = action_move(source, destination)
+		} else {
+			paste_code = copy_item(source, destination)
+		}
+		if paste_code != 0 {
+			devlog.failed(devlog.global(), site, {
+				reason = host.clip_cut ? "file could not be moved" : "file could not be copied",
+				detail = filepath.base(directory),
+				code = paste_code,
+				severity = .Warning,
+			}, {file_id = file_id, stage = stage})
+			failures += 1
+			index += 1
+			continue
+		}
+		devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage, scope = filepath.base(directory)})
+		if host.clip_cut {
+			gather_remove(&host.gather_paths, source)
+			action_clip_drop(host, index)
+			continue
+		}
+		index += 1
 	}
-	devlog.started(devlog.global(), site, {file_id = file_id, stage = stage})
-	paste_code: i32
-	if host.clip_cut {
-		paste_code = action_move(source, destination)
-	} else {
-		paste_code = copy_item(source, destination)
+	if failures > 0 {
+		notice_set(host, host.clip_cut ? "some items could not be moved" : "some items could not be copied")
+	} else if host.clip_cut {
+		action_clear_clip(host)
 	}
-	if paste_code != 0 {
-		devlog.failed(devlog.global(), site, {
-			reason = host.clip_cut ? "file could not be moved" : "file could not be copied",
-			detail = filepath.base(directory),
-			code = paste_code,
-			severity = .Warning,
-		}, {file_id = file_id, stage = stage})
-		notice_set(host, host.clip_cut ? "move failed" : "copy failed")
-		return
+	_ = tree_refresh(&host.tree)
+}
+
+// action_trash moves the gathered set to the Trash. Items that go leave the
+// set; failures stay so a second press retries only those.
+action_trash :: proc(host: ^Host) {
+	_ = gather_prune(&host.gather_paths)
+	if len(host.gather_paths) == 0 {return}
+	site := devlog.Site{feature = "files", operation = "trash"}
+	failures := 0
+	index := 0
+	for index < len(host.gather_paths) {
+		path := host.gather_paths[index]
+		if trash_item(path) {
+			devlog.succeeded(devlog.global(), site, {file_id = filepath.base(path), stage = "trash"})
+			gather_remove(&host.gather_paths, path)
+			continue
+		}
+		devlog.failed(devlog.global(), site, {reason = "file could not be moved to the trash", severity = .Warning}, {file_id = filepath.base(path), stage = "trash"})
+		failures += 1
+		index += 1
 	}
-	devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage, scope = filepath.base(directory)})
-	if host.clip_cut {action_clear_clip(host)}
+	if failures > 0 {notice_set(host, "some items could not be trashed")}
+	action_clip_prune(host)
 	_ = tree_refresh(&host.tree)
 }
 
@@ -167,8 +285,15 @@ action_unique_destination :: proc(directory, name: string) -> string {
 }
 
 action_clear_clip :: proc(host: ^Host) {
-	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
-	host.clip_path = ""
+	for path in host.clip_paths {delete(path, context.allocator)}
+	delete(host.clip_paths)
+	host.clip_paths = nil
+}
+
+action_clip_prune :: proc(host: ^Host) {
+	for index := len(host.clip_paths)-1; index >= 0; index -= 1 {
+		if !path_taken(host.clip_paths[index]) {action_clip_drop(host, index)}
+	}
 }
 
 // action_move renames, falling back to copy-then-remove across volumes. It

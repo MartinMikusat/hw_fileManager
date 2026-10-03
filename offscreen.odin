@@ -2,6 +2,7 @@ package file_manager
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -42,6 +43,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	font_size := 0
 	settings_open := false
 	select_name := ""
+	gather_names: [dynamic]string
+	defer delete(gather_names)
 	for argument in arguments[1:] {
 		switch {
 		case strings.has_prefix(argument, "--width="):
@@ -64,6 +67,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			font_size = parsed
 		case strings.has_prefix(argument, "--select="):
 			select_name = strings.trim_prefix(argument, "--select=")
+		case strings.has_prefix(argument, "--gather="):
+			append(&gather_names, strings.trim_prefix(argument, "--gather="))
 		case argument == "--settings":
 			settings_open = true
 		case:
@@ -108,6 +113,14 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	_ = tree_set_font_size(&tree, f32(settings.font_size))
 	if !tree_open(&tree, directory) {return false}
 	if len(select_name) > 0 && !tree_select_name(&tree, tree.active, select_name) {return false}
+	gather_paths: [dynamic]string
+	defer gather_destroy(&gather_paths)
+	for name in gather_names {
+		gathered_path, _ := filepath.join([]string{directory, name}, context.temp_allocator)
+		gather_add(&gather_paths, gathered_path)
+	}
+	current_gathered := false
+	if entry, ok := tree_selected_entry(&tree); ok {current_gathered = path_list_contains(gather_paths[:], entry.path)}
 	preview: Preview
 	defer preview_clear(&preview)
 
@@ -138,6 +151,11 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			preview = preview_view_make(&preview, &renderer, scale),
 			preview_rect = preview_rect,
 			preview_shown = preview_shown && preview.kind != .None,
+			clip_paths = nil,
+			gathered = len(gather_paths) > 0,
+			current_gathered = current_gathered,
+			gather_paths = gather_paths[:],
+			gather_hot_row = -1,
 			settings = settings,
 			settings_open = settings_open,
 			hot = Hot_State{control = -1},
