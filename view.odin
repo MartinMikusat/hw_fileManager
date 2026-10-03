@@ -24,6 +24,8 @@ Hot_State :: struct {
 	control:         int,
 	settings_button: bool,
 	settings_hot:    Settings_Hot,
+	action:          Action_Kind,
+	action_hot:      bool,
 }
 
 View_State :: struct {
@@ -33,6 +35,8 @@ View_State :: struct {
 	input_mode:       Input_Mode,
 	input:            string,
 	search_committed: bool,
+	copy_path:        string,
+	edit:             View_Edit,
 	now:              time.Time,
 }
 
@@ -80,9 +84,13 @@ view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 	return f32(longest)*char_advance+2*COLUMN_PAD
 }
 
-view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
+view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics, edit: View_Edit) {
 	for index in 0 ..< len(tree.columns) {
-		tree.columns[index].width = view_column_width(&tree.columns[index], metrics.char_advance)
+		width := view_column_width(&tree.columns[index], metrics.char_advance)
+		if edit.active && edit.column == index {
+			width = max(width, f32(len(edit.text))*metrics.char_advance+2*COLUMN_PAD)
+		}
+		tree.columns[index].width = width
 	}
 }
 
@@ -122,8 +130,8 @@ view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
 	tree.pan_y = center-row_center
 }
 
-view_layout :: proc(tree: ^Tree, metrics: View_Metrics) {
-	view_measure_columns(tree, metrics)
+view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}) {
+	view_measure_columns(tree, metrics, edit)
 	view_center_pan(tree, metrics)
 	view_place_columns(tree, metrics)
 }
@@ -296,20 +304,27 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 		}
+		if len(state.copy_path) > 0 && entry.path == state.copy_path {color = COLOR_COPY}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
-}
-
-view_breadcrumb :: proc(tree: ^Tree) -> string {
-	if tree.active >= 0 && tree.active < len(tree.columns) {
-		if entry, ok := tree_selected_entry(tree); ok {return entry.path}
-		return tree.columns[tree.active].dir
+	if state.edit.active && state.edit.column == index {
+		view_draw_inline_edit(text, list, tree, metrics, column, state.edit)
 	}
-	return tree_root_directory(tree)
 }
 
-// view_bar_text right-aligns on overflow so the selected name (or the search
-// counter) stays visible instead of being cut off.
+// view_draw_inline_edit renders the rename/new-file field exactly on the entry's
+// row, with a block cursor after the text.
+view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^Tree, metrics: View_Metrics, column: ^Column, edit: View_Edit) {
+	row_top := column.y+f32(edit.row)*tree.row_height
+	draw.solid(list, {column.x-COLUMN_PAD, metrics.height-row_top-tree.row_height, column.width, tree.row_height}, COLOR_SELECTION_BG)
+	view_draw_text(text, list, edit.text, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	x := column.x+COLUMN_PAD
+	if run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, 0, 0, false); run != nil {x += run.metrics.width}
+	cursor := draw.Rect{x, metrics.height-row_top-tree.row_height+4, 1.5, tree.row_height-8}
+	draw.solid(list, cursor, COLOR_TEXT, edge_softness = 0)
+}
+
+// view_bar_text right-aligns on overflow so the search counter stays visible.
 view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool) {
 	if len(value) == 0 {return}
 	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
@@ -319,9 +334,23 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 		if width := run.metrics.width; x+width > metrics.width-COLUMN_PAD {x = metrics.width-COLUMN_PAD-width}
 	}
 	top := metrics.height-metrics.bar_height
-	text_top := top+(metrics.bar_height-(run.metrics.ascent+run.metrics.descent))/2
+	text_top := top+(tree.row_height-(run.metrics.ascent+run.metrics.descent))/2
 	origin := ui.Vec2{x, metrics.height-(text_top+run.metrics.ascent)}
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
+}
+
+view_draw_actions :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
+	rects := action_bar_rects(metrics)
+	for kind in Action_Kind {
+		rect := rects[int(kind)]
+		available := action_available(tree, state.copy_path, kind)
+		color := available ? COLOR_TEXT : COLOR_DIM
+		if available && state.hot.action_hot && state.hot.action == kind {
+			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
+			color = COLOR_BACKGROUND
+		}
+		view_draw_text(text, list, action_label(kind), rect.x, rect.y, rect.h, tree.font_size, color, metrics.height)
+	}
 }
 
 view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
@@ -333,19 +362,19 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 	case .Search:
 		if len(state.input) == 0 {
 			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false)
-			return
+			break
 		}
 		if state.search_committed {
 			current, total := search_progress(tree, state.input)
 			view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
-			return
+			break
 		}
 		total := 0
 		if tree.active >= 0 && tree.active < len(tree.columns) {total = search_match_count(&tree.columns[tree.active], state.input)}
 		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true)
 	case .None:
-		view_bar_text(text, list, view_breadcrumb(tree), tree, metrics, COLOR_DIM, true)
 	}
+	view_draw_actions(tree, list, text, metrics, state)
 }
 
 view_draw_settings :: proc(

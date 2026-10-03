@@ -203,6 +203,15 @@ tree_focus_column :: proc(tree: ^Tree, column_index: int) -> bool {
 	return true
 }
 
+tree_select_name :: proc(tree: ^Tree, column_index: int, name: string) -> bool {
+	if column_index < 0 || column_index >= len(tree.columns) {return false}
+	column := &tree.columns[column_index]
+	for entry, index in column.entries {
+		if entry.name == name {return tree_select(tree, column_index, index, enter = false)}
+	}
+	return false
+}
+
 tree_selected_entry :: proc(tree: ^Tree) -> (Entry, bool) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return {}, false}
 	column := &tree.columns[tree.active]

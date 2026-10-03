@@ -59,6 +59,14 @@ Host :: struct {
 	history_index:  int,
 	draft:          [INPUT_MAX]u8,
 	draft_len:      int,
+	copy_path:      string,
+	edit_mode:      Edit_Mode,
+	edit_text:      [INPUT_MAX]u8,
+	edit_len:       int,
+	edit_column:    int,
+	edit_row:       int,
+	hot_action:     Action_Kind,
+	hot_action_hot: bool,
 	frames_pending: int,
 	initialized:    bool,
 }
@@ -245,6 +253,7 @@ host_initialize :: proc() -> bool {
 
 host_shutdown :: proc() {
 	if !host.initialized {return}
+	if len(host.copy_path) > 0 {delete(host.copy_path, context.allocator)}
 	macos.display_link_stop(&host.display_link)
 	tree_destroy(&host.tree)
 	metal.renderer_destroy(&host.renderer)
@@ -290,10 +299,16 @@ host_render :: proc() {
 		height = height,
 		char_advance = measure_char_advance(&host.text, host.tree.font_size),
 		row_height = host.tree.row_height,
-		bar_height = host.tree.row_height,
+		bar_height = 2*host.tree.row_height,
 	}
 	host.char_advance = metrics.char_advance
-	view_layout(&host.tree, metrics)
+	edit := View_Edit{
+		active = host.edit_mode != .None,
+		column = host.edit_column,
+		row = host.edit_row,
+		text = edit_text(&host),
+	}
+	view_layout(&host.tree, metrics, edit)
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host.settings,
 		settings_open = host.settings_open,
@@ -301,10 +316,14 @@ host_render :: proc() {
 			control = host.hot_control,
 			settings_button = host.hot_settings_button,
 			settings_hot = host.hot_settings_hot,
+			action = host.hot_action,
+			action_hot = host.hot_action_hot,
 		},
 		input_mode = host.input_mode,
 		input = input_text(&host),
 		search_committed = host.search_committed,
+		copy_path = host.copy_path,
+		edit = edit,
 		now = time.now(),
 	})
 	coretext.flush(&host.text)
@@ -339,20 +358,29 @@ host_update_hover :: proc(point: ui.Vec2) {
 		height = host.view_height,
 		char_advance = host.char_advance,
 		row_height = host.tree.row_height,
+		bar_height = 2*host.tree.row_height,
 	}
 	control := -1
 	settings_button := false
 	settings_hot := Settings_Hot.None
+	action := host.hot_action
+	action_hot := false
 	if host.settings_open {
 		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics), point)
 	} else {
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
+		if kind, inside := action_bar_at(metrics, point); inside && action_available(&host.tree, host.copy_path, kind) {
+			action = kind
+			action_hot = true
+		}
 	}
-	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot {return}
+	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && action == host.hot_action && action_hot == host.hot_action_hot {return}
 	host.hot_control = control
 	host.hot_settings_button = settings_button
 	host.hot_settings_hot = settings_hot
+	host.hot_action = action
+	host.hot_action_hot = action_hot
 	host_request_frames(1)
 }
 
@@ -424,8 +452,9 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		height = host.view_height,
 		char_advance = host.char_advance,
 		row_height = host.tree.row_height,
-		bar_height = host.tree.row_height,
+		bar_height = 2*host.tree.row_height,
 	}
+	if host.edit_mode != .None {return}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
 		if !inside {
@@ -455,7 +484,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		intrinsics.objc_send(nil, host.window, "performWindowDragWithEvent:", event)
 		return
 	}
-	if point.y > host.view_height-host.tree.row_height {
+	if point.y >= host.view_height-host.tree.row_height {
+		if kind, inside := action_bar_at(metrics, point); inside {action_perform(&host, kind)}
+		return
+	}
+	if point.y >= host.view_height-2*host.tree.row_height {
 		input_reset(&host)
 		host_request_frames(1)
 		return
@@ -509,12 +542,30 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 		return
 	}
+	if host.edit_mode != .None {
+		if !command && !control {
+			if characters := event->characters(); characters != nil {
+				if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
+					edit_append(&host, text[0])
+				}
+			}
+		}
+		switch {
+		case key == 51: edit_backspace(&host)
+		case key == 53: edit_cancel(&host)
+		case key == 36: edit_commit(&host)
+		}
+		host_request_frames(2)
+		return
+	}
 	if !command && !control {
 		if characters := event->characters(); characters != nil {
 			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
 				switch {
 				case text[0] == '/' && host.input_mode != .Search:
 					search_begin(&host)
+				case text[0] >= '1' && text[0] <= '4' && host.input_mode == .None:
+					// Numbered action shortcuts are handled in the switch below.
 				case host.input_mode == .Search && host.search_committed:
 					// n/N are navigation and are handled below.
 				case:
@@ -561,6 +612,10 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 	case key == 45:
 		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
+	case key == 18, key == 19, key == 20, key == 21:
+		if host.input_mode == .None {
+			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind)}
+		}
 	case key == 115:
 		_ = host_select_index(0)
 	case key == 119:
