@@ -70,22 +70,37 @@ edit_invalid :: proc(name: string) -> bool {
 	return false
 }
 
+// edit_target_directory is the folder the edit applies to. Rename uses the
+// selected entry's own parent so it can never diverge from the entry; New file
+// uses the active column.
+edit_target_directory :: proc(host: ^Host) -> string {
+	if host.edit_mode == .Rename {
+		if entry, ok := tree_selected_entry(&host.tree); ok {return filepath.dir(entry.path)}
+	}
+	if host.edit_column >= 0 && host.edit_column < len(host.tree.columns) {return host.tree.columns[host.edit_column].dir}
+	return ""
+}
+
 // edit_conflict reports whether the typed name already exists in the target
 // directory, other than the entry being renamed.
 edit_conflict :: proc(host: ^Host) -> bool {
 	if host.edit_mode == .None {return false}
-	if host.edit_column < 0 || host.edit_column >= len(host.tree.columns) {return false}
 	name := host.edit_value
 	if len(name) == 0 {return false}
-	column := &host.tree.columns[host.edit_column]
+	directory := edit_target_directory(host)
+	if len(directory) == 0 {return false}
 	original := ""
 	if host.edit_mode == .Rename {
 		if entry, ok := tree_selected_entry(&host.tree); ok {original = entry.path}
 	}
-	destination, _ := filepath.join([]string{column.dir, name}, context.temp_allocator)
+	destination, _ := filepath.join([]string{directory, name}, context.temp_allocator)
 	if destination == original {return false}
-	for entry in column.entries {
-		if entry.path == destination {return true}
+	if entry, ok := tree_selected_entry(&host.tree); ok && entry.path == destination {return true}
+	if host.edit_column >= 0 && host.edit_column < len(host.tree.columns) {
+		column := &host.tree.columns[host.edit_column]
+		for entry in column.entries {
+			if entry.path == destination {return true}
+		}
 	}
 	return os.exists(destination)
 }
@@ -93,7 +108,6 @@ edit_conflict :: proc(host: ^Host) -> bool {
 edit_commit :: proc(host: ^Host) {
 	if host.edit_mode == .None {return}
 	name := strings.clone(host.edit_value, context.temp_allocator)
-	column := host.edit_column
 	mode := host.edit_mode
 	if edit_invalid(name) {
 		notice_set(host, "invalid name")
@@ -103,15 +117,31 @@ edit_commit :: proc(host: ^Host) {
 		notice_set(host, "a file with that name already exists")
 		return
 	}
+	directory := edit_target_directory(host)
+	destination, join_error := filepath.join([]string{directory, name}, context.temp_allocator)
+	if join_error != nil || len(destination) == 0 || destination[0] != '/' {
+		devlog.failed(devlog.global(), {feature = "files", operation = "edit_name"}, {
+			reason = "edit target path is invalid",
+			severity = .Warning,
+		})
+		notice_set(host, "could not build the target path")
+		return
+	}
 	original := ""
 	if mode == .Rename {
 		if entry, ok := tree_selected_entry(&host.tree); ok {original = entry.path}
 	}
-	destination, _ := filepath.join([]string{host.tree.columns[column].dir, name}, context.temp_allocator)
 	applied := false
+	rename_code := i32(0)
 	switch mode {
 	case .Rename:
-		applied = destination == original || os.rename(original, destination) == nil
+		if destination == original {
+			applied = true
+		} else if rename_error := os.rename(original, destination); rename_error == nil {
+			applied = true
+		} else {
+			rename_code = os_error_code(rename_error)
+		}
 	case .NewFile:
 		if file, create_error := os.create(destination); create_error == nil {
 			os.close(file)
@@ -119,15 +149,18 @@ edit_commit :: proc(host: ^Host) {
 		}
 	case .None:
 	}
-	edit_cancel(host)
 	if !applied {
 		devlog.failed(devlog.global(), {feature = "files", operation = "edit_name"}, {
 			reason = "name could not be applied",
+			detail = filepath.base(directory),
+			code = rename_code,
 			severity = .Warning,
 		})
 		notice_set(host, "name could not be applied")
 		return
 	}
+	column := host.edit_column
+	edit_cancel(host)
 	_ = tree_refresh(&host.tree)
 	_ = tree_select_name(&host.tree, column, name)
 }
@@ -196,6 +229,16 @@ edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, optio
 		return false
 	}
 	return true
+}
+
+// os_error_code extracts the numeric errno/general code from an os.Error union
+// for the dev log's failure records.
+os_error_code :: proc(err: os.Error) -> i32 {
+	#partial switch value in err {
+	case os.Platform_Error: return i32(value)
+	case os.General_Error:  return i32(value)
+	}
+	return 0
 }
 
 edit_nsstring :: proc(value: string) -> ^NS.String {

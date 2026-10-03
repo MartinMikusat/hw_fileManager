@@ -107,9 +107,11 @@ action_paste :: proc(host: ^Host) {
 			notice_set(host, "a file with that name already exists")
 			return
 		}
-		if os.rename(source, destination) != nil {
+		if move_error := os.rename(source, destination); move_error != nil {
 			devlog.failed(devlog.global(), {feature = "files", operation = "paste"}, {
 				reason = "file could not be moved",
+				detail = filepath.base(directory),
+				code = os_error_code(move_error),
 				severity = .Warning,
 			})
 			notice_set(host, "move failed")
