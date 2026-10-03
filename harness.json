@@ -1,6 +1,7 @@
 {
   "package": ".",
   "collections": {
+    "components": "../odin_libraries/hw_odin_ui_components",
     "devlog": "../odin_libraries/hw_odin_devlog",
     "ui_framework": "../odin_libraries/hw_odin_ui_framework"
   },
