@@ -493,7 +493,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		row_height = host.tree.row_height,
 		bar_height = 2*host.tree.row_height,
 	}
-	if host.edit_mode != .None {return}
+	if host.edit_mode != .None {
+		edit_cancel(&host)
+		host_request_frames(2)
+		return
+	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
 		if !inside {
@@ -580,6 +584,10 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host.settings_open = false
 			host_request_frames(1)
 		}
+		return
+	}
+	if host.edit_mode != .None && command && (key == 13 || key == 12) {
+		if key == 13 {host.window->close()} else {host.app->terminate(nil)}
 		return
 	}
 	if host.edit_mode != .None {

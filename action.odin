@@ -112,7 +112,7 @@ action_paste :: proc(host: ^Host) {
 	}
 	plain, _ := filepath.join([]string{directory, file_id}, context.temp_allocator)
 	destination := plain
-	if os.exists(plain) {
+	if path_taken(plain) {
 		if host.clip_cut {
 			devlog.failed(devlog.global(), site, {reason = "destination name already exists", severity = .Info}, {file_id = file_id, stage = stage})
 			notice_set(host, "a file with that name already exists")
@@ -123,17 +123,17 @@ action_paste :: proc(host: ^Host) {
 		destination = action_unique_destination(directory, file_id)
 	}
 	devlog.started(devlog.global(), site, {file_id = file_id, stage = stage})
-	paste_error: os.Error
+	paste_code: i32
 	if host.clip_cut {
-		paste_error = os.rename(source, destination)
+		paste_code = action_move(source, destination)
 	} else {
-		paste_error = action_copy_path(source, destination)
+		paste_code = copy_item(source, destination)
 	}
-	if paste_error != nil {
+	if paste_code != 0 {
 		devlog.failed(devlog.global(), site, {
 			reason = host.clip_cut ? "file could not be moved" : "file could not be copied",
 			detail = filepath.base(directory),
-			code = os_error_code(paste_error),
+			code = paste_code,
 			severity = .Warning,
 		}, {file_id = file_id, stage = stage})
 		notice_set(host, host.clip_cut ? "move failed" : "copy failed")
@@ -163,7 +163,7 @@ action_unique_destination :: proc(directory, name: string) -> string {
 		suffix := index == 1 ? " copy" : fmt.tprintf(" copy %d", index)
 		name_with_suffix := strings.concatenate({base, suffix, extension}, context.temp_allocator)
 		candidate, _ := filepath.join([]string{directory, name_with_suffix}, context.temp_allocator)
-		if !os.exists(candidate) {return candidate}
+		if !path_taken(candidate) {return candidate}
 	}
 }
 
@@ -172,23 +172,17 @@ action_clear_clip :: proc(host: ^Host) {
 	host.clip_path = ""
 }
 
-action_copy_path :: proc(source, destination: string) -> os.Error {
-	if os.is_dir(source) {
-		if error := os.make_directory_all(destination); error != nil {return error}
-		handle, open_error := os.open(source)
-		if open_error != nil {return open_error}
-		defer os.close(handle)
-		infos, read_error := os.read_dir(handle, -1, context.temp_allocator)
-		if read_error != nil {return read_error}
-		defer os.file_info_slice_delete(infos, context.temp_allocator)
-		for info in infos {
-			if info.name == "." || info.name == ".." {continue}
-			child, _ := filepath.join([]string{destination, info.name}, context.temp_allocator)
-			if error := action_copy_path(info.fullpath, child); error != nil {return error}
-		}
-		return nil
+// action_move renames, falling back to copy-then-remove across volumes. It
+// returns 0 or an errno.
+action_move :: proc(source, destination: string) -> i32 {
+	move_error := os.rename(source, destination)
+	if move_error == nil {return 0}
+	code := os_error_code(move_error)
+	if code != EXDEV {return code}
+	if copy_code := copy_item(source, destination); copy_code != 0 {
+		_ = os.remove_all(destination)
+		return copy_code
 	}
-	data, read_error := os.read_entire_file(source, context.temp_allocator)
-	if read_error != nil {return read_error}
-	return os.write_entire_file(destination, data)
+	if os.remove_all(source) != nil {return EXDEV}
+	return 0
 }

@@ -94,7 +94,7 @@ edit_conflict :: proc(host: ^Host) -> bool {
 		if entry, ok := tree_selected_entry(&host.tree); ok {original = entry.path}
 	}
 	destination, _ := filepath.join([]string{directory, name}, context.temp_allocator)
-	if destination == original {return false}
+	if destination == original || path_same_file(original, destination) {return false}
 	if entry, ok := tree_selected_entry(&host.tree); ok && entry.path == destination {return true}
 	if host.edit_column >= 0 && host.edit_column < len(host.tree.columns) {
 		column := &host.tree.columns[host.edit_column]
@@ -102,7 +102,7 @@ edit_conflict :: proc(host: ^Host) -> bool {
 			if entry.path == destination {return true}
 		}
 	}
-	return os.exists(destination)
+	return path_taken(destination)
 }
 
 edit_commit :: proc(host: ^Host) {

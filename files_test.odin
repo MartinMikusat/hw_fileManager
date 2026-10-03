@@ -1,5 +1,6 @@
 package file_manager
 
+import "core:os"
 import "core:testing"
 import "core:time"
 
@@ -28,4 +29,18 @@ name_contains_fold_matches_case_insensitively :: proc(t: ^testing.T) {
 	testing.expect(t, name_contains_fold("Alpha", "ph"))
 	testing.expect(t, !name_contains_fold("alpha", "beta"))
 	testing.expect(t, !name_contains_fold("ab", "abc"))
+}
+
+@(test)
+read_entries_treats_a_symlink_to_a_folder_as_a_folder :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+	testing.expect(t, os.symlink(TREE_FIXTURE_ROOT+"/beta", TREE_FIXTURE_ROOT+"/link") == nil)
+
+	entries, ok := read_entries(TREE_FIXTURE_ROOT)
+	testing.expect(t, ok)
+	defer entries_destroy(entries)
+	for entry in entries {
+		if entry.name == "link" {testing.expect(t, entry.is_dir)}
+	}
 }

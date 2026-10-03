@@ -140,6 +140,45 @@ edit_rename_and_new_file_apply_names :: proc(t: ^testing.T) {
 }
 
 @(test)
+action_copy_pastes_a_folder_tree :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer action_clear_clip(&host)
+	testing.expect(t, tree_open(&host.tree, TREE_FIXTURE_ROOT))
+	testing.expect(t, tree_select_name(&host.tree, host.tree.active, "alpha"))
+
+	action_clip(&host, false)
+	testing.expect(t, tree_select_name(&host.tree, host.tree.active, "beta"))
+	action_paste(&host)
+	testing.expect(t, os.exists(action_fixture_path("beta", "alpha", "nested", "deep.txt")))
+	testing.expect(t, os.exists(action_fixture_path("alpha", "nested", "deep.txt")))
+}
+
+@(test)
+edit_renames_only_the_case :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer edit_cancel(&host)
+	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
+	testing.expect(t, tree_move(&host.tree, 1))
+
+	edit_begin(&host, .Rename)
+	delete(host.edit_value, context.allocator)
+	host.edit_value = strings.clone("ONE.txt", context.allocator)
+	testing.expect(t, !edit_conflict(&host))
+	edit_commit(&host)
+	testing.expect(t, tree_select_name(&host.tree, host.tree.active, "ONE.txt"))
+}
+
+@(test)
 edit_refuses_an_existing_name :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
