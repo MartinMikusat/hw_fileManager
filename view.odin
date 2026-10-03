@@ -378,11 +378,15 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
 	settings_top := metrics.height-settings.y-settings.h
 	view_draw_text(text, list, SETTINGS_LABEL, settings.x, settings_top, settings.h, tree.font_size, hot.settings_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	// The version sits just left of the Settings button; the title yields the room.
+	version_width := f32(len(APP_VERSION))*metrics.char_advance
+	version_x := settings.x-metrics.char_advance-version_width
+	view_draw_text(text, list, APP_VERSION, version_x, settings_top, settings.h, tree.font_size, COLOR_DIM, metrics.height)
 	title := tree_root_directory(tree)
 	if entry, ok := tree_selected_entry(tree); ok {title = entry.path}
 	if len(title) == 0 {return}
 	x := CONTROL_INSET_CELLS*metrics.char_advance
-	available := max(settings.x-x-metrics.char_advance, 0)
+	available := max(version_x-x-metrics.char_advance, 0)
 	view_draw_text(text, list, title, x, 0, CHROME_HEIGHT, tree.font_size, COLOR_DIM, metrics.height, available)
 }
 

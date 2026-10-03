@@ -15,6 +15,12 @@ import native_update "native_update:."
 UPDATE_VERSION :: #config(HW_UPDATE_VERSION, "")
 UPDATE_FEED_URL :: #config(HW_UPDATE_FEED_URL, "")
 UPDATE_TEAM_ID :: #config(HW_UPDATE_TEAM_ID, "")
+// APP_VERSION is shown in the chrome; builds without a release version are "dev".
+when UPDATE_VERSION != "" {
+	APP_VERSION :: "v" + UPDATE_VERSION
+} else {
+	APP_VERSION :: "dev"
+}
 UPDATE_BUNDLE_ID :: "com.halwayland.filemanager"
 UPDATE_BUNDLE_NAME :: "hw_fileManager.app"
 UPDATE_INTERVAL :: time.Hour
