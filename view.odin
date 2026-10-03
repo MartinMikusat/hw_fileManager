@@ -444,8 +444,9 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	child := &tree.columns[index+1]
 	if parent.selected < 0 {return}
 	row_y := parent.y+f32(parent.selected)*tree.row_height+tree.row_height/2
+	// The links of the chain down to the active column are drawn at full strength.
 	color := COLOR_CONNECTOR
-	if index+1 == tree.active {color = COLOR_CONNECTOR_HOT}
+	if index+1 <= tree.active {color = COLOR_CONNECTOR_HOT}
 	x0 := parent.x+parent.width
 	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
 }
@@ -486,7 +487,7 @@ view_draw_context_connector :: proc(tree: ^Tree, list: ^draw.List, parent: ^Colu
 	y0 := parent.y+f32(block.row)*tree.row_height+tree.row_height/2
 	x1 := child.x
 	y1 := block.y+tree.row_height/2
-	color := COLOR_CONNECTOR
+	color := COLOR_CONNECTOR_CONTEXT
 	if abs(y1-y0) < 1 {
 		view_connector_line(list, metrics, x0, y0, x1, y1, color)
 		return
