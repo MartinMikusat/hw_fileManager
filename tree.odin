@@ -12,6 +12,12 @@ Column :: struct {
 	width:    f32,
 	x:        f32,
 	y:        f32,
+	above:    [dynamic]Block,
+	below:    [dynamic]Block,
+	// Next parent rows to read into above/below; valid once context_ready.
+	above_next:    int,
+	below_next:    int,
+	context_ready: bool,
 }
 
 Tree :: struct {
@@ -51,6 +57,7 @@ tree_destroy :: proc(tree: ^Tree) {
 }
 
 column_destroy :: proc(column: ^Column, allocator: mem.Allocator) {
+	column_context_destroy(column, allocator)
 	delete(column.dir, allocator)
 	entries_destroy(column.entries, allocator)
 	column^ = {}

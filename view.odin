@@ -90,6 +90,11 @@ view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 		count := index == column.selected ? len(entry.name) : min(len(entry.name), NAME_MAX_CHARS)
 		longest = max(longest, count)
 	}
+	for blocks in ([2][dynamic]Block{column.above, column.below}) {
+		for block in blocks {
+			for entry in block.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
+		}
+	}
 	return f32(longest)*char_advance+2*COLUMN_PAD
 }
 
@@ -116,33 +121,60 @@ view_column_top :: proc(tree: ^Tree, index: int) -> f32 {
 
 view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
 	x := COLUMN_PAD+tree.pan_x
+	gap := view_context_gap(tree)
 	for index in 0 ..< len(tree.columns) {
 		column := &tree.columns[index]
 		column.x = x
 		column.y = view_column_top(tree, index)+tree.pan_y
+		cursor := column.y
+		for &block in column.above {
+			cursor -= gap+f32(len(block.entries))*tree.row_height
+			block.y = cursor
+		}
+		cursor = column.y+f32(len(column.entries))*tree.row_height
+		for &block in column.below {
+			cursor += gap
+			block.y = cursor
+			cursor += f32(len(block.entries))*tree.row_height
+		}
 		x += column.width+COLUMN_GAP
 	}
 }
 
-// view_center_pan pins the active selection to the viewport center: its column's
-// left edge sits on the vertical center line, so a name growing or shrinking
-// never shifts the cascade, and its row sits on the middle line.
-view_center_pan :: proc(tree: ^Tree, metrics: View_Metrics) {
+// view_context_gap is the 2rem of whitespace between a column's own entries and
+// the sibling folders listed around them; one rem is the font size.
+view_context_gap :: proc(tree: ^Tree) -> f32 {
+	return 2*tree.font_size
+}
+
+// view_center_pan_y puts the active selection's row on the middle line.
+view_center_pan_y :: proc(tree: ^Tree, metrics: View_Metrics) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return}
 	column := &tree.columns[tree.active]
-	left := COLUMN_PAD
-	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
-	tree.pan_x = metrics.width/2-left
 	if column.selected < 0 {return}
 	center := (CHROME_HEIGHT+(metrics.height-metrics.bar_height))/2
 	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
 	tree.pan_y = center-row_center
 }
 
-view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}) {
+// view_center_pan_x pins the active column's left edge to the vertical center
+// line, so a name growing or shrinking never shifts the cascade.
+view_center_pan_x :: proc(tree: ^Tree, metrics: View_Metrics) {
+	if tree.active < 0 || tree.active >= len(tree.columns) {return}
+	left := COLUMN_PAD
+	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
+	tree.pan_x = metrics.width/2-left
+}
+
+// view_layout returns false when sibling listings are still being read, so the
+// caller should draw another frame.
+view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}) -> bool {
+	view_center_pan_y(tree, metrics)
+	complete := tree_load_context(tree, CHROME_HEIGHT, metrics.height-metrics.bar_height, view_context_gap(tree))
 	view_measure_columns(tree, metrics, edit)
-	view_center_pan(tree, metrics)
+	view_center_pan_x(tree, metrics)
 	view_place_columns(tree, metrics)
+	return complete
 }
 
 // view_rect_draw flips a top-origin rect into the bottom-origin space the draw
@@ -319,6 +351,16 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			color = COLOR_COPY
 		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
+	}
+	for blocks in ([2][dynamic]Block{column.above, column.below}) {
+		for block in blocks {
+			for entry, row in block.entries {
+				row_top := block.y+f32(row)*tree.row_height
+				if row_top+tree.row_height < top || row_top > bottom {continue}
+				max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
+				view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, entry_color(entry.modified, state.now, entry.hidden), metrics.height, max_width)
+			}
+		}
 	}
 	if state.edit.active && state.edit.column == index {
 		view_draw_inline_edit(text, list, tree, metrics, column, state.edit)

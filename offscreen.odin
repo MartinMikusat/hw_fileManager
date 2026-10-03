@@ -125,7 +125,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		coretext.begin_frame(&text, scale, metal.atlas_io(&renderer))
 		metrics.char_advance = measure_char_advance(&text, tree.font_size)
 		draw.list_reset(&list)
-		view_layout(&tree, metrics)
+		for !view_layout(&tree, metrics) {}
 		view_draw(&tree, &list, &text, metrics, View_State{
 			settings = settings,
 			settings_open = settings_open,

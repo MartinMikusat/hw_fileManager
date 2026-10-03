@@ -344,7 +344,7 @@ host_render :: proc() {
 	}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
-	view_layout(&host.tree, metrics, edit)
+	if !view_layout(&host.tree, metrics, edit) {host_request_frames(1)}
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host.settings,
 		settings_open = host.settings_open,
