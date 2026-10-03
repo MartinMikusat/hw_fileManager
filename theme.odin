@@ -23,8 +23,6 @@ COLOR_BACKGROUND    :: draw.Color{0.043, 0.043, 0.051, 1.0}
 COLOR_TEXT          :: draw.Color{0.855, 0.855, 0.871, 1.0}
 COLOR_DIM           :: draw.Color{0.510, 0.510, 0.541, 1.0}
 COLOR_RECENT        :: draw.Color{0.427, 0.620, 0.973, 1.0}
-// Terminal orange at the stale end of the recency gradient.
-COLOR_STALE         :: draw.Color{1.0, 0.647, 0.0, 1.0}
 ENTRY_AGE_SPAN      :: 30*24*time.Hour
 COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
 COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
@@ -56,12 +54,12 @@ row_height_for :: proc(font_size: f32) -> f32 {
 	return font_size*ROW_HEIGHT_RATIO
 }
 
-// entry_color fades from blue for fresh files to terminal orange for everything
-// older than ENTRY_AGE_SPAN, a continuous recency cue rather than kind buckets.
+// entry_color fades from blue for fresh entries to the plain text colour for
+// everything older than ENTRY_AGE_SPAN, so only recent entries are highlighted.
 entry_color :: proc(modified, now: time.Time, hidden: bool) -> draw.Color {
 	if hidden {return COLOR_DIM}
 	t := clamp(f32(time.diff(modified, now))/f32(ENTRY_AGE_SPAN), 0, 1)
-	return color_lerp(COLOR_RECENT, COLOR_STALE, t)
+	return color_lerp(COLOR_RECENT, COLOR_TEXT, t)
 }
 
 color_lerp :: proc(a, b: draw.Color, t: f32) -> draw.Color {

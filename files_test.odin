@@ -7,12 +7,12 @@ import "core:time"
 @(test)
 entry_color_fades_by_age :: proc(t: ^testing.T) {
 	now := time.now()
-	// A fresh file is the blue end; anything past the span clamps to orange.
+	// A fresh file is the blue end; anything past the span is plain text.
 	testing.expect_value(t, entry_color(now, now, false), COLOR_RECENT)
-	testing.expect_value(t, entry_color(time.time_add(now, -60*24*time.Hour), now, false), COLOR_STALE)
+	testing.expect_value(t, entry_color(time.time_add(now, -60*24*time.Hour), now, false), COLOR_TEXT)
 	testing.expect_value(t, entry_color(now, now, true), COLOR_DIM)
 	mid := entry_color(time.time_add(now, -ENTRY_AGE_SPAN/2), now, false)
-	testing.expect(t, mid != COLOR_RECENT && mid != COLOR_STALE)
+	testing.expect(t, mid != COLOR_RECENT && mid != COLOR_TEXT)
 }
 
 @(test)
