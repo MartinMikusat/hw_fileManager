@@ -50,6 +50,7 @@ Host :: struct {
 	hot_settings_hot:    Settings_Hot,
 	settings:       Settings,
 	settings_open:  bool,
+	settings_tab:   Settings_Tab,
 	zoxide:         string,
 	input_value:    string,
 	input_mode:     Input_Mode,
@@ -97,7 +98,7 @@ register_mono_font :: proc(text: ^coretext.Context) {
 }
 
 measure_char_advance :: proc(text: ^coretext.Context, font_size: f32) -> f32 {
-	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", font_size, 0, 0, false)
+	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", font_size, text_tracking, 0, false)
 	if run == nil {return font_size*0.6}
 	return run.metrics.width/10
 }
@@ -195,7 +196,8 @@ host_initialize :: proc() -> bool {
 
 	host.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
-	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_weight)
+	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
+	text_tracking = f32(host.settings.letter_spacing)/10
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
 	restored := false
@@ -260,6 +262,7 @@ host_initialize :: proc() -> bool {
 
 	tree_init(&host.tree)
 	host.gather_hot_row = -1
+	tree_set_line_ratio(&host.tree, settings_line_ratio(host.settings))
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	host.terminals = terminals_detect()
@@ -447,6 +450,8 @@ host_render :: proc() {
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host_settings_view(),
 		settings_open = host.settings_open,
+		settings_tab = host.settings_tab,
+		width_locked = host_width_locked(),
 		hot = {
 			control = host.hot_control,
 			settings_button = host.hot_settings_button,
@@ -520,7 +525,7 @@ host_update_hover :: proc(point: ui.Vec2) {
 	gather_row := -1
 	gather_clear := false
 	if host.settings_open {
-		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics), point)
+		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
 	} else {
 		if len(host.gather_paths) > 0 {
 			layout := gather_panel_layout(metrics, len(host.gather_paths))
@@ -560,12 +565,19 @@ host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Noti
 	update_finish()
 }
 
+// host_width_locked is true when the font has no other width to step to.
+host_width_locked :: proc() -> bool {
+	return len(host.settings.font_family) == 0 || len(font_family_widths(&font_catalog, host.settings.font_family)) < 2
+}
+
 // host_settings_view is the settings with the terminal that would actually open.
 host_settings_view :: proc() -> Settings {
 	view := host.settings
 	view.terminal = host_terminal()
 	if host.settings_open {font_catalog_scan(&font_catalog)}
-	view.font_weight = font_effective_style(&font_catalog, host.settings.font_family, host.settings.font_weight)
+	view.font_weight = font_effective_style(&font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
+	view.font_width = font_effective_width(&font_catalog, host.settings.font_family, host.settings.font_width)
+	view.line_height = settings_line_percent(host.settings)
 	return view
 }
 
@@ -587,8 +599,37 @@ host_settings_font_weight :: proc(style: string) {
 	host_apply_font()
 }
 
+host_settings_font_width :: proc(width: string) {
+	delete(host.settings.font_width)
+	host.settings.font_width = strings.clone(width)
+	host_apply_font()
+}
+
+host_settings_line_height :: proc(delta: int) {
+	current := settings_line_percent(host.settings)
+	host.settings.line_height = settings_line_height_clamped(current+delta)
+	tree_set_line_ratio(&host.tree, settings_line_ratio(host.settings))
+	host_apply_font()
+}
+
+host_settings_letter_spacing :: proc(delta: int) {
+	host.settings.letter_spacing = settings_letter_spacing_clamped(host.settings.letter_spacing+delta)
+	text_tracking = f32(host.settings.letter_spacing)/10
+	host_apply_font()
+}
+
+// host_settings_show_tab switches the modal's page, dropping any open field.
+host_settings_show_tab :: proc(tab: Settings_Tab) {
+	if host.input_mode == .OpenWith || host.input_mode == .FontFamily {
+		input_reset(&host)
+		host.notice_len = 0
+	}
+	host.settings_tab = tab
+	host_request_frames(2)
+}
+
 host_apply_font :: proc() {
-	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_weight)
+	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
 	host_capture_window_frame()
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 	host_request_frames(2)
@@ -746,7 +787,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if host.settings_open {
-		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
+		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
 		field_kept := (host.input_mode == .OpenWith && hot == .EditorCustom) || (host.input_mode == .FontFamily && hot == .FontCustom)
 		if (host.input_mode == .OpenWith || host.input_mode == .FontFamily) && !field_kept {
 			input_reset(&host)
@@ -776,8 +817,18 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		} else if hot == .WeightPrevious || hot == .WeightNext {
 			if len(host.settings.font_family) > 0 {
 				step := hot == .WeightNext ? 1 : -1
-				host_settings_font_weight(font_weight_step(&font_catalog, host.settings.font_family, host.settings.font_weight, step))
+				host_settings_font_weight(font_weight_step(&font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight, step))
 			}
+		} else if hot == .WidthPrevious || hot == .WidthNext {
+			if len(host.settings.font_family) > 0 {
+				host_settings_font_width(font_width_step(&font_catalog, host.settings.font_family, host.settings.font_width, hot == .WidthNext ? 1 : -1))
+			}
+		} else if hot == .LineMinus || hot == .LinePlus {
+			host_settings_line_height(hot == .LinePlus ? 5 : -5)
+		} else if hot == .SpacingMinus || hot == .SpacingPlus {
+			host_settings_letter_spacing(hot == .SpacingPlus ? 2 : -2)
+		} else if hot == .TabGeneral || hot == .TabFont {
+			host_settings_show_tab(hot == .TabFont ? .Font : .General)
 		} else if hot == .FontCustom && host.input_mode != .FontFamily {
 			input_begin(&host, .FontFamily)
 			input_set(&host, host.settings.font_family)
@@ -921,6 +972,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host.window->close()
 		case command && key == 12:
 			host.app->terminate(nil)
+		case key == 48:
+			host_settings_show_tab(host.settings_tab == .General ? .Font : .General)
 		case key == 53, command && key == 43:
 			input_reset(&host)
 			host.settings_open = false

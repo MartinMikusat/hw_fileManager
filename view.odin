@@ -19,8 +19,14 @@ View_Metrics :: struct {
 
 Settings_Hot :: enum {
 	None,
+	TabGeneral,
+	TabFont,
 	Minus,
 	Plus,
+	LineMinus,
+	LinePlus,
+	SpacingMinus,
+	SpacingPlus,
 	Previous,
 	Next,
 	Animations,
@@ -34,7 +40,15 @@ Settings_Hot :: enum {
 	FontCustom,
 	WeightPrevious,
 	WeightNext,
+	WidthPrevious,
+	WidthNext,
 }
+
+Settings_Tab :: enum {
+	General,
+	Font,
+}
+
 
 Hot_State :: struct {
 	control:         int,
@@ -71,43 +85,53 @@ View_State :: struct {
 	notice_error:     bool,
 	shift:            bool,
 	now:              time.Time,
+	settings_tab:     Settings_Tab,
+	width_locked:     bool,
 }
 
 SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
+SETTINGS_TAB_GENERAL_LABEL :: "[General]"
+SETTINGS_TAB_FONT_LABEL :: "[Font]"
 PREVIOUS_LABEL :: "[<]"
 NEXT_LABEL :: "[>]"
 EDITOR_CUSTOM_LABEL :: "[Other]"
 FONT_BUILT_IN_LABEL :: "Iosevka (built in)"
 
+Settings_Row :: enum {
+	Size,
+	Family,
+	Weight,
+	Width,
+	Line,
+	Spacing,
+	Terminal,
+	Animations,
+	Editor,
+	Syntax,
+}
+
+Settings_Control :: struct {
+	rect:  draw.Rect,
+	hot:   Settings_Hot,
+	label: string,
+	row:   Settings_Row,
+}
+
+SETTINGS_CONTROLS_MAX :: 24
+
 Settings_Layout :: struct {
 	panel:     draw.Rect,
 	title_top: f32,
-	row_top:   f32,
-	minus:     draw.Rect,
-	plus:      draw.Rect,
-	terminal_top: f32,
-	previous:  draw.Rect,
-	next:      draw.Rect,
-	animations_top: f32,
-	animations: draw.Rect,
-	editor_top: f32,
-	editor_previous: draw.Rect,
-	editor_next: draw.Rect,
-	editor_custom: draw.Rect,
-	syntax_top: f32,
-	syntax_previous: draw.Rect,
-	syntax_next: draw.Rect,
-	font_top: f32,
-	font_previous: draw.Rect,
-	font_next: draw.Rect,
-	font_custom: draw.Rect,
-	weight_top: f32,
-	weight_previous: draw.Rect,
-	weight_next: draw.Rect,
+	tabs_top:  f32,
+	// Top of each row of the active tab; rows of the other tab are not laid out.
+	tops:      [Settings_Row]f32,
+	controls:  [SETTINGS_CONTROLS_MAX]Settings_Control,
+	count:     int,
 	hint_top:  f32,
 }
+
 
 view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 	longest := 0
@@ -310,67 +334,61 @@ view_settings_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> bool 
 	return point.x >= rect.x && point.x < rect.x+rect.w && point.y >= metrics.height-rect.y-rect.h && point.y < metrics.height-rect.y
 }
 
-view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Layout {
+view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings_Tab.General) -> Settings_Layout {
 	ch := metrics.char_advance
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 10*row+2*pad
-	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
-	title_top := panel.y+pad
-	row_top := title_top+row
+	height := 9*row+2*pad
+	layout := Settings_Layout{}
+	layout.panel = draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
+	layout.title_top = layout.panel.y+pad
+	layout.tabs_top = layout.title_top+row
+	first := layout.tabs_top+row
 	button := 3*ch
-	plus := draw.Rect{panel.x+panel.w-pad-button, row_top, button, row}
-	minus := draw.Rect{plus.x-button-ch, row_top, button, row}
-	font_top := row_top+row
-	font_next := draw.Rect{plus.x, font_top, button, row}
-	font_previous := draw.Rect{minus.x, font_top, button, row}
-	font_custom_width := f32(len(EDITOR_CUSTOM_LABEL))*ch
-	font_custom := draw.Rect{font_previous.x-ch-font_custom_width, font_top, font_custom_width, row}
-	weight_top := font_top+row
-	weight_next := draw.Rect{plus.x, weight_top, button, row}
-	weight_previous := draw.Rect{minus.x, weight_top, button, row}
-	terminal_top := weight_top+row
-	next := draw.Rect{plus.x, terminal_top, button, row}
-	previous := draw.Rect{minus.x, terminal_top, button, row}
-	animations_top := terminal_top+row
-	toggle := 5*ch
-	animations := draw.Rect{plus.x+plus.w-toggle, animations_top, toggle, row}
-	editor_top := animations_top+row
-	editor_next := draw.Rect{plus.x, editor_top, button, row}
-	editor_previous := draw.Rect{minus.x, editor_top, button, row}
-	custom_width := f32(len(EDITOR_CUSTOM_LABEL))*ch
-	editor_custom := draw.Rect{editor_previous.x-ch-custom_width, editor_top, custom_width, row}
-	syntax_top := editor_top+row
-	syntax_next := draw.Rect{plus.x, syntax_top, button, row}
-	syntax_previous := draw.Rect{minus.x, syntax_top, button, row}
-	return {
-		panel = panel,
-		title_top = title_top,
-		row_top = row_top,
-		minus = minus,
-		plus = plus,
-		terminal_top = terminal_top,
-		previous = previous,
-		next = next,
-		animations_top = animations_top,
-		animations = animations,
-		editor_top = editor_top,
-		editor_previous = editor_previous,
-		editor_next = editor_next,
-		editor_custom = editor_custom,
-		syntax_top = syntax_top,
-		syntax_previous = syntax_previous,
-		syntax_next = syntax_next,
-		font_top = font_top,
-		font_previous = font_previous,
-		font_next = font_next,
-		font_custom = font_custom,
-		weight_top = weight_top,
-		weight_previous = weight_previous,
-		weight_next = weight_next,
-		hint_top = syntax_top+row,
+	right := layout.panel.x+layout.panel.w-pad
+	add :: proc(layout: ^Settings_Layout, rect: draw.Rect, hot: Settings_Hot, label: string, row: Settings_Row) {
+		layout.controls[layout.count] = {rect, hot, label, row}
+		layout.count += 1
 	}
+	tab_width := f32(len(SETTINGS_TAB_GENERAL_LABEL))*ch
+	add(&layout, {layout.panel.x+pad, layout.tabs_top, tab_width, row}, .TabGeneral, SETTINGS_TAB_GENERAL_LABEL, .Size)
+	add(&layout, {layout.panel.x+pad+tab_width+ch, layout.tabs_top, f32(len(SETTINGS_TAB_FONT_LABEL))*ch, row}, .TabFont, SETTINGS_TAB_FONT_LABEL, .Size)
+	// stepper adds a [-]/[+]-style pair at the right edge of a row.
+	stepper :: proc(layout: ^Settings_Layout, top, right, button, ch, row: f32, first, second: Settings_Hot, labels: [2]string, which: Settings_Row) {
+		add(layout, {right-button, top, button, row}, second, labels[1], which)
+		add(layout, {right-2*button-ch, top, button, row}, first, labels[0], which)
+	}
+	other := f32(len(EDITOR_CUSTOM_LABEL))*ch
+	switch tab {
+	case .Font:
+		layout.tops[.Size] = first
+		layout.tops[.Family] = first+row
+		layout.tops[.Weight] = first+2*row
+		layout.tops[.Width] = first+3*row
+		layout.tops[.Line] = first+4*row
+		layout.tops[.Spacing] = first+5*row
+		layout.hint_top = first+6*row
+		stepper(&layout, layout.tops[.Size], right, button, ch, row, .Minus, .Plus, {MINUS_LABEL, PLUS_LABEL}, .Size)
+		stepper(&layout, layout.tops[.Family], right, button, ch, row, .FontPrevious, .FontNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Family)
+		add(&layout, {right-2*button-ch-ch-other, layout.tops[.Family], other, row}, .FontCustom, EDITOR_CUSTOM_LABEL, .Family)
+		stepper(&layout, layout.tops[.Weight], right, button, ch, row, .WeightPrevious, .WeightNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Weight)
+		stepper(&layout, layout.tops[.Width], right, button, ch, row, .WidthPrevious, .WidthNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Width)
+		stepper(&layout, layout.tops[.Line], right, button, ch, row, .LineMinus, .LinePlus, {MINUS_LABEL, PLUS_LABEL}, .Line)
+		stepper(&layout, layout.tops[.Spacing], right, button, ch, row, .SpacingMinus, .SpacingPlus, {MINUS_LABEL, PLUS_LABEL}, .Spacing)
+	case .General:
+		layout.tops[.Terminal] = first
+		layout.tops[.Animations] = first+row
+		layout.tops[.Editor] = first+2*row
+		layout.tops[.Syntax] = first+3*row
+		layout.hint_top = first+4*row
+		stepper(&layout, layout.tops[.Terminal], right, button, ch, row, .Previous, .Next, {PREVIOUS_LABEL, NEXT_LABEL}, .Terminal)
+		add(&layout, {right-5*ch, layout.tops[.Animations], 5*ch, row}, .Animations, "", .Animations)
+		stepper(&layout, layout.tops[.Editor], right, button, ch, row, .EditorPrevious, .EditorNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Editor)
+		add(&layout, {right-2*button-ch-ch-other, layout.tops[.Editor], other, row}, .EditorCustom, EDITOR_CUSTOM_LABEL, .Editor)
+		stepper(&layout, layout.tops[.Syntax], right, button, ch, row, .SyntaxPrevious, .SyntaxNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Syntax)
+	}
+	return layout
 }
 
 view_rect_has :: proc(rect: draw.Rect, point: ui.Vec2) -> bool {
@@ -378,41 +396,11 @@ view_rect_has :: proc(rect: draw.Rect, point: ui.Vec2) -> bool {
 }
 
 view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_Hot, bool) {
-	if point.x >= layout.minus.x && point.x < layout.minus.x+layout.minus.w &&
-	   point.y >= layout.minus.y && point.y < layout.minus.y+layout.minus.h {
-		return .Minus, true
+	for index in 0 ..< layout.count {
+		control := layout.controls[index]
+		if view_rect_has(control.rect, point) {return control.hot, true}
 	}
-	if point.x >= layout.plus.x && point.x < layout.plus.x+layout.plus.w &&
-	   point.y >= layout.plus.y && point.y < layout.plus.y+layout.plus.h {
-		return .Plus, true
-	}
-	if point.x >= layout.previous.x && point.x < layout.previous.x+layout.previous.w &&
-	   point.y >= layout.previous.y && point.y < layout.previous.y+layout.previous.h {
-		return .Previous, true
-	}
-	if point.x >= layout.next.x && point.x < layout.next.x+layout.next.w &&
-	   point.y >= layout.next.y && point.y < layout.next.y+layout.next.h {
-		return .Next, true
-	}
-	if view_rect_has(layout.editor_previous, point) {return .EditorPrevious, true}
-	if view_rect_has(layout.editor_next, point) {return .EditorNext, true}
-	if view_rect_has(layout.editor_custom, point) {return .EditorCustom, true}
-	if view_rect_has(layout.syntax_previous, point) {return .SyntaxPrevious, true}
-	if view_rect_has(layout.font_previous, point) {return .FontPrevious, true}
-	if view_rect_has(layout.font_next, point) {return .FontNext, true}
-	if view_rect_has(layout.font_custom, point) {return .FontCustom, true}
-	if view_rect_has(layout.weight_previous, point) {return .WeightPrevious, true}
-	if view_rect_has(layout.weight_next, point) {return .WeightNext, true}
-	if view_rect_has(layout.syntax_next, point) {return .SyntaxNext, true}
-	if point.x >= layout.animations.x && point.x < layout.animations.x+layout.animations.w &&
-	   point.y >= layout.animations.y && point.y < layout.animations.y+layout.animations.h {
-		return .Animations, true
-	}
-	if point.x >= layout.panel.x && point.x < layout.panel.x+layout.panel.w &&
-	   point.y >= layout.panel.y && point.y < layout.panel.y+layout.panel.h {
-		return .None, true
-	}
-	return .None, false
+	return .None, view_rect_has(layout.panel, point)
 }
 
 view_draw_text :: proc(
@@ -425,7 +413,7 @@ view_draw_text :: proc(
 	viewport_height: f32,
 	max_width: f32 = 0,
 ) {
-	run := coretext.shape(text, FONT_MONO, value, size, 0, max_width, max_width > 0)
+	run := coretext.shape(text, FONT_MONO, value, size, text_tracking, max_width, max_width > 0)
 	if run == nil {return}
 	text_top := top+(height-(run.metrics.ascent+run.metrics.descent))/2
 	origin := ui.Vec2{x, viewport_height-(text_top+run.metrics.ascent)}
@@ -663,7 +651,7 @@ view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^
 	row_bottom := metrics.height-row_top-tree.row_height
 	draw.solid(list, {column.x-COLUMN_PAD, row_bottom, column.width, tree.row_height}, COLOR_SELECTION_BG)
 	content_width := max(column.width-2*COLUMN_PAD, metrics.char_advance)
-	run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, 0, 0, false)
+	run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, text_tracking, 0, false)
 	caret_x := view_edit_offset(text, run, edit.text, edit.caret)
 	start_x := view_edit_offset(text, run, edit.text, edit.selection_start)
 	end_x := view_edit_offset(text, run, edit.text, edit.selection_end)
@@ -692,7 +680,7 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 		if caret >= 0 {draw.solid(list, {COLUMN_PAD, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)}
 		return
 	}
-	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
+	run := coretext.shape(text, FONT_MONO, value, tree.font_size, text_tracking, 0, false)
 	if run == nil {return}
 	x := COLUMN_PAD
 	if right_align {
@@ -785,7 +773,7 @@ view_draw_field :: proc(text: ^coretext.Context, list: ^draw.List, value: string
 	draw.push_clip(list, view_rect_draw(rect, metrics))
 	defer draw.pop_clip(list)
 	inner := max(rect.w-2*metrics.char_advance, metrics.char_advance)
-	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
+	run := coretext.shape(text, FONT_MONO, value, tree.font_size, text_tracking, 0, false)
 	caret_x := view_edit_offset(text, run, value, caret)
 	scroll := max(caret_x-(inner-metrics.char_advance), 0)
 	left := rect.x+metrics.char_advance-scroll
@@ -810,103 +798,89 @@ view_draw_settings :: proc(
 	state: View_State,
 ) {
 	if !settings_open {return}
-	layout := view_settings_layout(tree, metrics)
+	layout := view_settings_layout(tree, metrics, state.settings_tab)
 	draw.solid(list, {0, 0, metrics.width, metrics.height}, COLOR_MODAL_BACKDROP, edge_softness = 0)
-	panel := view_rect_draw(layout.panel, metrics)
-	draw.solid(list, panel, COLOR_BACKGROUND, edge_softness = 0)
+	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_BACKGROUND, edge_softness = 0)
 	left := layout.panel.x+2*metrics.char_advance
-	view_draw_text(text, list, "Settings", left, layout.title_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	label := fmt.tprintf("Font size: %d", settings.font_size)
-	view_draw_text(text, list, label, left, layout.row_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	minus := view_rect_draw(layout.minus, metrics)
-	plus := view_rect_draw(layout.plus, metrics)
-	if hot.settings_hot == .Minus {draw.solid(list, minus, COLOR_TEXT, edge_softness = 0)}
-	if hot.settings_hot == .Plus {draw.solid(list, plus, COLOR_TEXT, edge_softness = 0)}
-	view_draw_text(text, list, MINUS_LABEL, layout.minus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Minus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	view_draw_text(text, list, PLUS_LABEL, layout.plus.x, layout.row_top, tree.row_height, tree.font_size, hot.settings_hot == .Plus ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	editing_font := state.input_mode == .FontFamily
-	if editing_font {
-		prefix := "Font: "
-		field_x := left+f32(len(prefix))*metrics.char_advance
-		view_draw_text(text, list, prefix, left, layout.font_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-		field := draw.Rect{field_x, layout.font_top, layout.font_next.x+layout.font_next.w-field_x, tree.row_height}
-		view_draw_field(text, list, state.input, field, tree, metrics, state.input_caret, state.input_sel_start, state.input_sel_end)
-	} else {
-		family_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
-			{layout.font_previous, .FontPrevious, PREVIOUS_LABEL},
-			{layout.font_next, .FontNext, NEXT_LABEL},
-			{layout.font_custom, .FontCustom, EDITOR_CUSTOM_LABEL},
+	row_height := tree.row_height
+	size := tree.font_size
+	view_draw_text(text, list, "Settings", left, layout.title_top, row_height, size, COLOR_TEXT, metrics.height)
+
+	editing_row := Settings_Row.Size
+	editing := false
+	#partial switch state.input_mode {
+	case .OpenWith:   editing_row, editing = .Editor, true
+	case .FontFamily: editing_row, editing = .Family, true
+	}
+
+	label_for :: proc(row: Settings_Row, settings: Settings) -> string {
+		switch row {
+		case .Size:       return fmt.tprintf("Font size: %d", settings.font_size)
+		case .Family:     return fmt.tprintf("Font: %s", len(settings.font_family) > 0 ? settings.font_family : FONT_BUILT_IN_LABEL)
+		case .Weight:     return fmt.tprintf("Weight: %s", settings.font_weight)
+		case .Width:      return fmt.tprintf("Width: %s", font_width_label(settings.font_width))
+		case .Line:       return fmt.tprintf("Line height: %d%%", settings.line_height)
+		case .Spacing:    return fmt.tprintf("Letter spacing: %.1f pt", f32(settings.letter_spacing)/10)
+		case .Terminal:   return fmt.tprintf("Terminal: %s", settings.terminal)
+		case .Animations: return "Animations"
+		case .Editor:     return fmt.tprintf("Text editor: %s", editor_label(settings.editor))
+		case .Syntax:     return fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)])
 		}
-		for button in family_buttons {
-			inverted := hot.settings_hot == button.hot
-			if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
-			view_draw_text(text, list, button.label, button.rect.x, layout.font_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+		return ""
+	}
+
+	locked :: proc(row: Settings_Row, settings: Settings, state: View_State) -> bool {
+		#partial switch row {
+		case .Weight: return len(settings.font_family) == 0
+		case .Width:  return state.width_locked
 		}
-		family_name := fmt.tprintf("Font: %s", len(settings.font_family) > 0 ? settings.font_family : FONT_BUILT_IN_LABEL)
-		view_draw_text(text, list, family_name, left, layout.font_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.font_custom.x-left-metrics.char_advance, 0))
+		return false
 	}
-	weight_locked := len(settings.font_family) == 0
-	weight_buttons := [2]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
-		{layout.weight_previous, .WeightPrevious, PREVIOUS_LABEL},
-		{layout.weight_next, .WeightNext, NEXT_LABEL},
-	}
-	for button in weight_buttons {
-		inverted := hot.settings_hot == button.hot && !weight_locked
-		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
-		color := weight_locked ? COLOR_DIM : (inverted ? COLOR_BACKGROUND : COLOR_TEXT)
-		view_draw_text(text, list, button.label, button.rect.x, layout.weight_top, tree.row_height, tree.font_size, color, metrics.height)
-	}
-	view_draw_text(text, list, fmt.tprintf("Weight: %s", settings.font_weight), left, layout.weight_top, tree.row_height, tree.font_size, weight_locked ? COLOR_DIM : COLOR_TEXT, metrics.height)
-	previous := view_rect_draw(layout.previous, metrics)
-	next := view_rect_draw(layout.next, metrics)
-	if hot.settings_hot == .Previous {draw.solid(list, previous, COLOR_TEXT, edge_softness = 0)}
-	if hot.settings_hot == .Next {draw.solid(list, next, COLOR_TEXT, edge_softness = 0)}
-	view_draw_text(text, list, fmt.tprintf("Terminal: %s", settings.terminal), left, layout.terminal_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	view_draw_text(text, list, PREVIOUS_LABEL, layout.previous.x, layout.terminal_top, tree.row_height, tree.font_size, hot.settings_hot == .Previous ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	view_draw_text(text, list, NEXT_LABEL, layout.next.x, layout.terminal_top, tree.row_height, tree.font_size, hot.settings_hot == .Next ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	toggle := view_rect_draw(layout.animations, metrics)
-	if hot.settings_hot == .Animations {draw.solid(list, toggle, COLOR_TEXT, edge_softness = 0)}
-	view_draw_text(text, list, "Animations", left, layout.animations_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	view_draw_text(text, list, settings.animations_off ? "[off]" : "[on]", layout.animations.x, layout.animations_top, tree.row_height, tree.font_size, hot.settings_hot == .Animations ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	editing := state.input_mode == .OpenWith
-	if editing {
-		prefix := "Text editor: "
-		field_x := left+f32(len(prefix))*metrics.char_advance
-		view_draw_text(text, list, prefix, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-		field := draw.Rect{field_x, layout.editor_top, layout.editor_next.x+layout.editor_next.w-field_x, tree.row_height}
-		view_draw_field(text, list, state.input, field, tree, metrics, state.input_caret, state.input_sel_start, state.input_sel_end)
-	} else {
-		editor_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
-			{layout.editor_previous, .EditorPrevious, PREVIOUS_LABEL},
-			{layout.editor_next, .EditorNext, NEXT_LABEL},
-			{layout.editor_custom, .EditorCustom, EDITOR_CUSTOM_LABEL},
+
+	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax}
+	for row in rows_shown {
+		// The label yields to the row's controls.
+		limit := layout.panel.x+layout.panel.w
+		for index in 0 ..< layout.count {
+			control := layout.controls[index]
+			if control.row == row && control.hot != .TabGeneral && control.hot != .TabFont {limit = min(limit, control.rect.x)}
 		}
-		for button in editor_buttons {
-			inverted := hot.settings_hot == button.hot
-			if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
-			view_draw_text(text, list, button.label, button.rect.x, layout.editor_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+		dim := locked(row, settings, state)
+		if editing && row == editing_row {
+			prefix := state.input_mode == .FontFamily ? "Font: " : "Text editor: "
+			field_x := left+f32(len(prefix))*metrics.char_advance
+			view_draw_text(text, list, prefix, left, layout.tops[row], row_height, size, COLOR_TEXT, metrics.height)
+			field := draw.Rect{field_x, layout.tops[row], layout.panel.x+layout.panel.w-2*metrics.char_advance-field_x, row_height}
+			view_draw_field(text, list, state.input, field, tree, metrics, state.input_caret, state.input_sel_start, state.input_sel_end)
+			continue
 		}
-		editor_name := fmt.tprintf("Text editor: %s", editor_label(settings.editor))
-		view_draw_text(text, list, editor_name, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.editor_custom.x-left-metrics.char_advance, 0))
+		view_draw_text(text, list, label_for(row, settings), left, layout.tops[row], row_height, size, dim ? COLOR_DIM : COLOR_TEXT, metrics.height, max(limit-left-metrics.char_advance, 0))
 	}
-	syntax_buttons := [2]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
-		{layout.syntax_previous, .SyntaxPrevious, PREVIOUS_LABEL},
-		{layout.syntax_next, .SyntaxNext, NEXT_LABEL},
+	for index in 0 ..< layout.count {
+		control := layout.controls[index]
+		is_tab := control.hot == .TabGeneral || control.hot == .TabFont
+		if !is_tab && editing && control.row == editing_row {continue}
+		disabled := !is_tab && locked(control.row, settings, state)
+		inverted := hot.settings_hot == control.hot && !disabled
+		label := control.label
+		if control.hot == .Animations {label = settings.animations_off ? "[off]" : "[on]"}
+		color := disabled ? COLOR_DIM : COLOR_TEXT
+		if is_tab {
+			active := (control.hot == .TabGeneral) == (state.settings_tab == .General)
+			inverted = inverted || active
+			color = active ? COLOR_TEXT : COLOR_DIM
+		}
+		if inverted {draw.solid(list, view_rect_draw(control.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		view_draw_text(text, list, label, control.rect.x, control.rect.y, row_height, size, inverted ? COLOR_BACKGROUND : color, metrics.height)
 	}
-	for button in syntax_buttons {
-		inverted := hot.settings_hot == button.hot
-		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
-		view_draw_text(text, list, button.label, button.rect.x, layout.syntax_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	}
-	view_draw_text(text, list, fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)]), left, layout.syntax_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
-	editing = editing || editing_font
 	switch {
 	case editing && len(state.notice) > 0:
-		view_draw_text(text, list, state.notice, left, layout.hint_top, tree.row_height, tree.font_size, COLOR_RED, metrics.height)
+		view_draw_text(text, list, state.notice, left, layout.hint_top, row_height, size, COLOR_RED, metrics.height)
 	case editing:
-		view_draw_text(text, list, editing_font ? "enter saves · esc cancels · empty = built-in font" : "enter saves · esc cancels · empty = system default", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+		hint := state.input_mode == .FontFamily ? "enter saves · esc cancels · empty = built-in font" : "enter saves · esc cancels · empty = system default"
+		view_draw_text(text, list, hint, left, layout.hint_top, row_height, size, COLOR_DIM, metrics.height)
 	case:
-		view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+		view_draw_text(text, list, "⌘, opens · tab switches · esc closes", left, layout.hint_top, row_height, size, COLOR_DIM, metrics.height)
 	}
 }
 

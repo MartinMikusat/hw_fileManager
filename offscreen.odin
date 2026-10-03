@@ -108,13 +108,15 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	}
 	defer metal.renderer_destroy(&renderer)
 	register_mono_font(&text)
-	font_apply(&text, &font_catalog, settings.font_family, settings.font_weight)
+	font_apply(&text, &font_catalog, settings.font_family, settings.font_width, settings.font_weight)
+	text_tracking = f32(settings.letter_spacing)/10
 
 	tree: Tree
 	tree_init(&tree)
 	defer tree_destroy(&tree)
 	settings.terminal = terminal_effective(settings.terminal, terminals_detect())
 	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
+	tree_set_line_ratio(&tree, settings_line_ratio(settings))
 	_ = tree_set_font_size(&tree, f32(settings.font_size))
 	if !tree_open(&tree, directory, grandparent = true) {return false}
 	if len(select_name) > 0 && !tree_select_name(&tree, tree.active, select_name) {return false}

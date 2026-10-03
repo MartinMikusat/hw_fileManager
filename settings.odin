@@ -21,6 +21,11 @@ Settings :: struct {
 	// Monospaced font family and style name, owned; empty family is the embedded font.
 	font_family: string,
 	font_weight: string,
+	// Width of the family ("" is normal), line height as a percent of the font size
+	// (0 is the default) and letter spacing in tenths of a point.
+	font_width: string,
+	line_height: int,
+	letter_spacing: int,
 }
 
 Window_Frame :: struct {
@@ -41,6 +46,9 @@ Settings_Document :: struct {
 	syntax_theme:  string `json:"syntax_theme"`,
 	font_family:   string `json:"font_family"`,
 	font_weight:   string `json:"font_weight"`,
+	font_width:    string `json:"font_width"`,
+	line_height:   int `json:"line_height"`,
+	letter_spacing: int `json:"letter_spacing"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -49,6 +57,29 @@ settings_defaults :: proc() -> Settings {
 
 settings_font_size_clamped :: proc(value: int) -> int {
 	return clamp(value, FONT_SIZE_MIN, FONT_SIZE_MAX)
+}
+
+LINE_HEIGHT_MIN :: 110
+LINE_HEIGHT_MAX :: 260
+LETTER_SPACING_MIN :: -10
+LETTER_SPACING_MAX :: 40
+
+settings_line_height_clamped :: proc(value: int) -> int {
+	return clamp(value, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX)
+}
+
+settings_letter_spacing_clamped :: proc(value: int) -> int {
+	return clamp(value, LETTER_SPACING_MIN, LETTER_SPACING_MAX)
+}
+
+// settings_line_ratio is the row height as a multiple of the font size.
+settings_line_ratio :: proc(settings: Settings) -> f32 {
+	return settings.line_height > 0 ? f32(settings.line_height)/100 : ROW_HEIGHT_RATIO
+}
+
+// settings_line_percent is the line height as a percent of the font size.
+settings_line_percent :: proc(settings: Settings) -> int {
+	return int(settings_line_ratio(settings)*100+0.5)
 }
 
 settings_path :: proc(allocator := context.allocator) -> string {
@@ -95,6 +126,12 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		delete(settings.font_family)
 		settings.font_family = document.font_family
 	}
+	if len(document.font_width) > 0 {
+		delete(settings.font_width)
+		settings.font_width = document.font_width
+	}
+	if document.line_height != 0 {settings.line_height = settings_line_height_clamped(document.line_height)}
+	settings.letter_spacing = settings_letter_spacing_clamped(document.letter_spacing)
 	if len(document.font_weight) > 0 {
 		delete(settings.font_weight)
 		settings.font_weight = document.font_weight
@@ -131,6 +168,9 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		syntax_theme = settings.syntax_theme,
 		font_family = settings.font_family,
 		font_weight = settings.font_weight,
+		font_width = settings.font_width,
+		line_height = settings.line_height == 0 ? 0 : settings_line_height_clamped(settings.line_height),
+		letter_spacing = settings_letter_spacing_clamped(settings.letter_spacing),
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

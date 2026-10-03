@@ -41,6 +41,7 @@ Tree :: struct {
 	layout_font:   f32,
 	font_size:  f32,
 	row_height: f32,
+	line_ratio: f32,
 	allocator:  mem.Allocator,
 }
 
@@ -50,7 +51,8 @@ tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
 	tree.columns = make([dynamic]Column, 0, 8, allocator)
 	tree.active = 0
 	tree.font_size = DEFAULT_FONT_SIZE
-	tree.row_height = row_height_for(DEFAULT_FONT_SIZE)
+	tree.line_ratio = ROW_HEIGHT_RATIO
+	tree.row_height = row_height_for(DEFAULT_FONT_SIZE, tree.line_ratio)
 }
 
 tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
@@ -58,8 +60,13 @@ tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
 	size := clamp(font_size, f32(FONT_SIZE_MIN), f32(FONT_SIZE_MAX))
 	if size == tree.font_size {return false}
 	tree.font_size = size
-	tree.row_height = row_height_for(size)
+	tree.row_height = row_height_for(size, tree.line_ratio)
 	return true
+}
+
+tree_set_line_ratio :: proc(tree: ^Tree, ratio: f32) {
+	tree.line_ratio = ratio
+	tree.row_height = row_height_for(tree.font_size, ratio)
 }
 
 tree_destroy :: proc(tree: ^Tree) {
