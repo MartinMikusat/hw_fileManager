@@ -584,7 +584,7 @@ host_save_editor :: proc(name: string) {
 }
 
 // host_open_with_commit stores the typed app when it exists; otherwise the field
-// stays open with a notice.
+// stays open and the modal shows why.
 host_open_with_commit :: proc() {
 	name := strings.trim_space(host.input_value)
 	if len(name) == 0 {
@@ -596,7 +596,7 @@ host_open_with_commit :: proc() {
 		return
 	}
 	input_reset(&host)
-	notice_set(&host, strings.concatenate({"text files open with ", editor_label(host.settings.editor)}, context.temp_allocator))
+	host.notice_len = 0
 }
 
 host_settings_animations :: proc() {
@@ -698,6 +698,10 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	}
 	if host.settings_open {
 		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics), point)
+		if host.input_mode == .OpenWith && hot != .EditorCustom {
+			input_reset(&host)
+			host.notice_len = 0
+		}
 		if !inside {
 			host.settings_open = false
 			host_request_frames(2)
@@ -715,10 +719,10 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_settings_editor(-1)
 		} else if hot == .EditorNext {
 			host_settings_editor(1)
-		} else if hot == .EditorCustom {
-			host.settings_open = false
+		} else if hot == .EditorCustom && host.input_mode != .OpenWith {
 			input_begin(&host, .OpenWith)
 			input_set(&host, host.settings.editor)
+			host.notice_len = 0
 			host_request_frames(2)
 		}
 		return
@@ -828,6 +832,21 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	shift := .Shift in event->modifierFlags()
 	host.shift_down = shift
 	key := uint(event->keyCode())
+	if host.settings_open && host.input_mode == .OpenWith {
+		switch {
+		case command && (key == 13 || key == 12):
+			if key == 13 {host.window->close()} else {host.app->terminate(nil)}
+		case key == 36, key == 76:
+			host_open_with_commit()
+		case key == 53:
+			input_reset(&host)
+			host.notice_len = 0
+		case:
+			_ = input_handle_key(&host, event, key, command, option, control, shift)
+		}
+		host_request_frames(2)
+		return
+	}
 	if host.settings_open {
 		switch {
 		case command && key == 13:
@@ -835,6 +854,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		case command && key == 12:
 			host.app->terminate(nil)
 		case key == 53, command && key == 43:
+			input_reset(&host)
 			host.settings_open = false
 			host_request_frames(1)
 		}

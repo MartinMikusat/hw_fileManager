@@ -71,7 +71,6 @@ PLUS_LABEL :: "[+]"
 PREVIOUS_LABEL :: "[<]"
 NEXT_LABEL :: "[>]"
 EDITOR_CUSTOM_LABEL :: "[Other]"
-OPEN_WITH_PROMPT :: "open text files with: "
 
 Settings_Layout :: struct {
 	panel:     draw.Rect,
@@ -590,8 +589,7 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 	case .Cd:
 		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false, state.input_caret, state.input_sel_start, state.input_sel_end)
 	case .OpenWith:
-		prompt := len(OPEN_WITH_PROMPT)
-		view_bar_text(text, list, fmt.tprintf("%s%s", OPEN_WITH_PROMPT, state.input), tree, metrics, COLOR_TEXT, false, prompt+state.input_caret, prompt+state.input_sel_start, prompt+state.input_sel_end)
+		// The field lives in the settings modal.
 	case .Search:
 		if len(state.input) == 0 {
 			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false, 1)
@@ -634,6 +632,27 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
+// view_draw_field draws an editable single-line field on a dark box, with its
+// selection and caret, scrolled to keep the caret in view. rect is top-origin.
+view_draw_field :: proc(text: ^coretext.Context, list: ^draw.List, value: string, rect: draw.Rect, tree: ^Tree, metrics: View_Metrics, caret, sel_start, sel_end: int) {
+	draw.solid(list, view_rect_draw(rect, metrics), COLOR_SELECTION_BG, edge_softness = 0)
+	draw.push_clip(list, view_rect_draw(rect, metrics))
+	defer draw.pop_clip(list)
+	inner := max(rect.w-2*metrics.char_advance, metrics.char_advance)
+	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
+	caret_x := view_edit_offset(text, run, value, caret)
+	scroll := max(caret_x-(inner-metrics.char_advance), 0)
+	left := rect.x+metrics.char_advance-scroll
+	bottom := metrics.height-rect.y-rect.h
+	if sel_end > sel_start {
+		start_x := view_edit_offset(text, run, value, sel_start)
+		end_x := view_edit_offset(text, run, value, sel_end)
+		draw.solid(list, {left+start_x, bottom, end_x-start_x, rect.h}, COLOR_SELECTION_INK, edge_softness = 0)
+	}
+	view_draw_text(text, list, value, left, rect.y, rect.h, tree.font_size, COLOR_TEXT, metrics.height)
+	draw.solid(list, {left+caret_x, bottom+4, 1.5, rect.h-8}, COLOR_CARET, edge_softness = 0)
+}
+
 view_draw_settings :: proc(
 	tree: ^Tree,
 	list: ^draw.List,
@@ -642,6 +661,7 @@ view_draw_settings :: proc(
 	settings: Settings,
 	settings_open: bool,
 	hot: Hot_State,
+	state: View_State,
 ) {
 	if !settings_open {return}
 	layout := view_settings_layout(tree, metrics)
@@ -669,19 +689,35 @@ view_draw_settings :: proc(
 	if hot.settings_hot == .Animations {draw.solid(list, toggle, COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, "Animations", left, layout.animations_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, settings.animations_off ? "[off]" : "[on]", layout.animations.x, layout.animations_top, tree.row_height, tree.font_size, hot.settings_hot == .Animations ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
-	editor_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
-		{layout.editor_previous, .EditorPrevious, PREVIOUS_LABEL},
-		{layout.editor_next, .EditorNext, NEXT_LABEL},
-		{layout.editor_custom, .EditorCustom, EDITOR_CUSTOM_LABEL},
+	editing := state.input_mode == .OpenWith
+	if editing {
+		prefix := "Text editor: "
+		field_x := left+f32(len(prefix))*metrics.char_advance
+		view_draw_text(text, list, prefix, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+		field := draw.Rect{field_x, layout.editor_top, layout.editor_next.x+layout.editor_next.w-field_x, tree.row_height}
+		view_draw_field(text, list, state.input, field, tree, metrics, state.input_caret, state.input_sel_start, state.input_sel_end)
+	} else {
+		editor_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
+			{layout.editor_previous, .EditorPrevious, PREVIOUS_LABEL},
+			{layout.editor_next, .EditorNext, NEXT_LABEL},
+			{layout.editor_custom, .EditorCustom, EDITOR_CUSTOM_LABEL},
+		}
+		for button in editor_buttons {
+			inverted := hot.settings_hot == button.hot
+			if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+			view_draw_text(text, list, button.label, button.rect.x, layout.editor_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+		}
+		editor_name := fmt.tprintf("Text editor: %s", editor_label(settings.editor))
+		view_draw_text(text, list, editor_name, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.editor_custom.x-left-metrics.char_advance, 0))
 	}
-	for button in editor_buttons {
-		inverted := hot.settings_hot == button.hot
-		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
-		view_draw_text(text, list, button.label, button.rect.x, layout.editor_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	switch {
+	case editing && len(state.notice) > 0:
+		view_draw_text(text, list, state.notice, left, layout.hint_top, tree.row_height, tree.font_size, COLOR_RED, metrics.height)
+	case editing:
+		view_draw_text(text, list, "enter saves · esc cancels · empty = system default", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+	case:
+		view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 	}
-	editor_name := fmt.tprintf("Text editor: %s", editor_label(settings.editor))
-	view_draw_text(text, list, editor_name, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.editor_custom.x-left-metrics.char_advance, 0))
-	view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 }
 
 view_draw :: proc(
@@ -700,5 +736,5 @@ view_draw :: proc(
 	if state.preview_shown {view_draw_preview(tree, list, text, state.preview_rect, state.preview, metrics)}
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_gather(tree, list, text, metrics, state)
-	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot)
+	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot, state)
 }
