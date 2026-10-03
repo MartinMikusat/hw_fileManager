@@ -28,7 +28,7 @@ kind. Source lives at the repository root (`package file_manager`).
   headless structural checks
   instead of launching the app.
 - Releases and updates: `python3 scripts/release_macos.py build <version> --notary-profile <profile>`
-  signs, notarizes and packages `dist/<version>`; `publish dist/<version>` creates the GitHub
+  signs, notarizes and packages `dist.noindex/<version>`; `publish dist.noindex/<version>` creates the GitHub
   release. Installed release apps check `releases/latest/download/update.json` hourly and swap
   in a staged update on quit (`update.odin`, `hw_odin_native_update`). Dev builds never update.
   Publish only when the operator asks for a specific version.

@@ -3,3 +3,4 @@ build/
 .dev-logs/
 .DS_Store
 dist/
+dist.noindex/
