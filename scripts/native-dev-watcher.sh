@@ -62,29 +62,6 @@ case "$RSS_LIMIT_MB" in
     ;;
 esac
 
-fingerprint() {
-  find \
-    "$PROJECT_DIR" \
-    "$ODIN_LIBS/native" \
-    "$ODIN_LIBS/hw_odin_devlog" \
-    "$ODIN_LIBS/hw_odin_ui_framework" \
-    "$ODIN_LIBS/hw_odin_ui_components" \
-    "$ODIN_LIBS/hw_odin_ui_flash" \
-    "$ODIN_LIBS/hw_odin_ui_commandPalette" \
-    "$ODIN_LIBS/hw_odin_matchSorter" \
-    "$ODIN_LIBS/hw_odin_ipc_localCommand" \
-    "$ODIN_LIBS/hw_odin_concurrency_taskQueue" \
-    -path "$BUILD" -prune -o \
-    -type f \( -name '*.odin' -o -name '*.m' -o -name '*.h' -o -name '*.metal' -o -name '*.plist' \) \
-    -print0 2>/dev/null |
-    xargs -0 stat -f '%m:%z:%N' 2>/dev/null
-  stat -f '%m:%z:%N' \
-    "$BUILD_SCRIPT" \
-    "$ROOT/scripts/native-dev-watcher.sh" \
-    "$ROOT/scripts/package-native-app.sh" \
-    2>/dev/null
-}
-
 process_ids_for_executable() {
   ps -axo pid=,comm= | awk -v executable="$EXECUTABLE" '$2 == executable {print $1}'
 }
@@ -258,6 +235,8 @@ cleanup() {
   exit "$status"
 }
 
+REBUILD_REQUESTED=false
+
 mkdir -p "$BUILD"
 assert_configuration
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -273,9 +252,10 @@ fi
 
 printf '%s\n' "$$" > "$WATCHER_PID_FILE"
 trap cleanup INT TERM EXIT
+# Source changes never rebuild on their own: `./dev.sh rebuild` sends USR1.
+trap 'REBUILD_REQUESTED=true' USR1
 stop_owned_processes
 rebuild_and_launch || exit 1
-LAST_FINGERPRINT=$(fingerprint | shasum | cut -d' ' -f1)
 
 while :; do
   sleep 0.5
@@ -292,9 +272,8 @@ while :; do
   fi
 
   check_memory_limit
-  CURRENT_FINGERPRINT=$(fingerprint | shasum | cut -d' ' -f1)
-  if [ "$CURRENT_FINGERPRINT" != "$LAST_FINGERPRINT" ]; then
-    LAST_FINGERPRINT=$CURRENT_FINGERPRINT
+  if [ "$REBUILD_REQUESTED" = true ]; then
+    REBUILD_REQUESTED=false
     rebuild_and_launch || true
   fi
 done

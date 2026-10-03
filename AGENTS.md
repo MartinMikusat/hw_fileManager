@@ -6,7 +6,8 @@ links to its child column through an orthogonal connector, and names are colored
 kind. Source lives at the repository root (`package file_manager`).
 
 - Build with `./build.sh [debug|trace|asan|release]`. Test with `./test.sh`. Run the
-  development watcher with `./dev.sh`.
+  development watcher with `./dev.sh`; it never rebuilds on its own, so run
+  `./dev.sh rebuild` to rebuild and relaunch the running app.
 - Shared Odin libraries live in `/Users/martin/projects/odin_libraries`; they are
   pinned in `dependencies.lock` and checked at build start. Do not copy those packages
   into this tree. Read `/Users/martin/projects/odin_libraries/AGENTS_NATIVE_CONTRACT.md`
