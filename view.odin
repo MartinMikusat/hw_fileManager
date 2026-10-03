@@ -60,8 +60,8 @@ Settings_Layout :: struct {
 
 view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 	longest := 0
-	for entry in column.entries {longest = max(longest, len(entry.name))}
-	return max(f32(longest)*char_advance+2*COLUMN_PAD, MIN_COLUMN_WIDTH)
+	for entry in column.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
+	return f32(longest)*char_advance+2*COLUMN_PAD
 }
 
 view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics) {
@@ -267,7 +267,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		}
 		color := entry_color(entry.kind, entry.hidden)
 		if selected {color = COLOR_SELECTED}
-		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, column.width-2*COLUMN_PAD)
 	}
 }
 
