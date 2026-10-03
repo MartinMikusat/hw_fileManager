@@ -12,5 +12,12 @@
     "theme.odin",
     "files.odin",
     "tree.odin"
+  ],
+  "tests": [
+    "."
+  ],
+  "test_flags": [
+    "-define:ODIN_TEST_THREADS=1",
+    "-define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true"
   ]
 }
