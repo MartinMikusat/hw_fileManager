@@ -74,3 +74,24 @@ search_jumps_into_a_listed_sibling_folder :: proc(t: ^testing.T) {
 	testing.expect(t, strings.has_suffix(column.dir, "/beta"))
 	testing.expect_value(t, column.entries[column.selected].name, "two.txt")
 }
+
+@(test)
+search_jump_into_the_leftmost_column_keeps_its_parent_visible :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer input_destroy(&host)
+	testing.expect(t, tree_open(&host.tree, TREE_FIXTURE_ROOT+"/alpha"))
+	host.input_mode = .Search
+	append_query(&host, "beta")
+	search_layout(&host)
+	search_commit(&host)
+
+	testing.expect_value(t, host.tree.active, 1)
+	testing.expect(t, strings.has_suffix(host.tree.columns[1].dir, "hw_fileManager-tree-test"))
+	selected := host.tree.columns[1].entries[host.tree.columns[1].selected]
+	testing.expect_value(t, selected.name, "beta")
+}

@@ -115,9 +115,14 @@ search_begin :: proc(host: ^Host) {
 }
 
 // search_jump selects an on-screen row, entering the sibling folder it is listed
-// under when it is not in a column of its own.
+// under when it is not in a column of its own, and keeps its parent column
+// visible when the row lands in the leftmost one.
 search_jump :: proc(host: ^Host, item: Search_Item) {
-	tree := &host.tree
+	search_select(&host.tree, item)
+	if host.tree.active == 0 {_ = tree_prepend(&host.tree)}
+}
+
+search_select :: proc(tree: ^Tree, item: Search_Item) {
 	parent_row := 0
 	switch item.source {
 	case .Main:
