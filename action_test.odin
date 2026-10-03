@@ -56,6 +56,28 @@ action_copy_then_paste_duplicates_the_file :: proc(t: ^testing.T) {
 }
 
 @(test)
+action_copy_paste_twice_renames_the_duplicate :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Host
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer action_clear_clip(&host)
+	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
+	testing.expect(t, tree_move(&host.tree, 1))
+
+	action_clip(&host, false)
+	testing.expect(t, tree_select_name(&host.tree, 0, "beta"))
+	testing.expect(t, tree_expand(&host.tree))
+	action_paste(&host)
+	action_paste(&host)
+	testing.expect(t, os.exists(action_fixture_path("beta", "one.txt")))
+	testing.expect(t, os.exists(action_fixture_path("beta", "one copy.txt")))
+	testing.expect(t, os.exists(action_fixture_path("alpha", "one.txt")))
+}
+
+@(test)
 edit_rename_and_new_file_apply_names :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()

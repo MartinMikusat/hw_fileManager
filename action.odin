@@ -1,5 +1,6 @@
 package file_manager
 
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -81,8 +82,8 @@ action_perform :: proc(host: ^Host, kind: Action_Kind) {
 	host_request_frames(2)
 }
 
-// action_clip marks the selection: Cut is a pending move (red), Copy a pending
-// duplicate (green).
+// action_clip marks the selection for a Cut (a pending move, drawn red). Copy is
+// silent like Finder's, and Paste duplicates.
 action_clip :: proc(host: ^Host, cut: bool) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok {return}
@@ -96,31 +97,57 @@ action_paste :: proc(host: ^Host) {
 	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return}
 	directory := host.tree.columns[host.tree.active].dir
 	source := host.clip_path
-	if filepath.dir(source) == directory {
-		if host.clip_cut {action_clear_clip(host)} else {notice_set(host, "already in this folder")}
-		return
-	}
-	destination, _ := filepath.join([]string{directory, filepath.base(source)}, context.temp_allocator)
-	if os.exists(destination) {
-		notice_set(host, "a file with that name already exists")
-		return
-	}
-	moved := false
 	if host.clip_cut {
-		moved = os.rename(source, destination) == nil
-	} else {
-		moved = action_copy_path(source, destination)
+		if filepath.dir(source) == directory {
+			action_clear_clip(host)
+			return
+		}
+		destination, _ := filepath.join([]string{directory, filepath.base(source)}, context.temp_allocator)
+		if os.exists(destination) {
+			notice_set(host, "a file with that name already exists")
+			return
+		}
+		if os.rename(source, destination) != nil {
+			devlog.failed(devlog.global(), {feature = "files", operation = "paste"}, {
+				reason = "file could not be moved",
+				severity = .Warning,
+			})
+			notice_set(host, "move failed")
+			return
+		}
+		action_clear_clip(host)
+		_ = tree_refresh(&host.tree)
+		return
 	}
-	if !moved {
+	// Finder keeps copied items on the clipboard and duplicates them with a
+	// " copy" suffix, including into the same folder.
+	plain, _ := filepath.join([]string{directory, filepath.base(source)}, context.temp_allocator)
+	destination := plain
+	if os.exists(plain) {destination = action_unique_destination(directory, filepath.base(source))}
+	if !action_copy_path(source, destination) {
 		devlog.failed(devlog.global(), {feature = "files", operation = "paste"}, {
-			reason = "file could not be pasted",
+			reason = "file could not be copied",
 			severity = .Warning,
 		})
-		notice_set(host, "paste failed")
+		notice_set(host, "copy failed")
 		return
 	}
-	action_clear_clip(host)
 	_ = tree_refresh(&host.tree)
+}
+
+// action_unique_destination mirrors Finder: "name copy.ext", then
+// "name copy 2.ext".
+action_unique_destination :: proc(directory, name: string) -> string {
+	base, extension := name, ""
+	if dot := strings.last_index_byte(name, '.'); dot > 0 {
+		base, extension = name[:dot], name[dot:]
+	}
+	for index := 1; ; index += 1 {
+		suffix := index == 1 ? " copy" : fmt.tprintf(" copy %d", index)
+		name_with_suffix := strings.concatenate({base, suffix, extension}, context.temp_allocator)
+		candidate, _ := filepath.join([]string{directory, name_with_suffix}, context.temp_allocator)
+		if !os.exists(candidate) {return candidate}
+	}
 }
 
 action_clear_clip :: proc(host: ^Host) {

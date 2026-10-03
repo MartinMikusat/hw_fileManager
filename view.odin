@@ -308,8 +308,8 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			max_width = f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 		}
-		if len(state.clip_path) > 0 && entry.path == state.clip_path {
-			color = state.clip_cut ? COLOR_COPY : COLOR_COPIED
+		if state.clip_cut && len(state.clip_path) > 0 && entry.path == state.clip_path {
+			color = COLOR_COPY
 		}
 		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
