@@ -21,6 +21,7 @@ Preview_View :: struct {
 	scale:   f32,
 	scroll:  f32,
 	focused: bool,
+	theme:   Syntax_Theme,
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
@@ -55,7 +56,7 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 			line := preview.lines[index]
 			if len(line) == 0 {continue}
 			offset := int(uintptr(raw_data(line))-uintptr(raw_data(preview.text)))
-			view_draw_code_line(tree, list, text, line, preview.kinds[offset:offset+len(line)], area.x, area.y+(f32(index)-preview.scroll)*tree.row_height, columns, metrics)
+			view_draw_code_line(tree, list, text, line, preview.kinds[offset:offset+len(line)], preview.theme, area.x, area.y+(f32(index)-preview.scroll)*tree.row_height, columns, metrics)
 		}
 		// The line counter is the scroll cue: dim when everything fits, inverted when
 		// the file scrolls, red once the preview has the focus.
@@ -80,31 +81,15 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 }
 
 // preview_view_make registers the preview texture for this frame's draw pass.
-preview_view_make :: proc(preview: ^Preview, renderer: ^metal.Renderer, scale: f32) -> Preview_View {
-	view := Preview_View{kind = preview.kind, scroll = preview.scroll, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale}
+preview_view_make :: proc(preview: ^Preview, renderer: ^metal.Renderer, scale: f32, theme: Syntax_Theme) -> Preview_View {
+	view := Preview_View{theme = theme, kind = preview.kind, scroll = preview.scroll, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale}
 	if preview.kind == .Image {view.texture = metal.register_texture(renderer, rawptr(preview.texture))}
 	return view
 }
 
-view_syntax_color :: proc(kind: Syntax_Kind) -> draw.Color {
-	switch kind {
-	case .Plain:     return COLOR_TEXT
-	case .Keyword:   return COLOR_SYNTAX_KEYWORD
-	case .Type:      return COLOR_SYNTAX_TYPE
-	case .Function:  return COLOR_SYNTAX_FUNCTION
-	case .String:    return COLOR_SYNTAX_STRING
-	case .Number:    return COLOR_SYNTAX_NUMBER
-	case .Comment:   return COLOR_DIM
-	case .Directive: return COLOR_SYNTAX_DIRECTIVE
-	case .Tag:       return COLOR_SYNTAX_TAG
-	case .Property:  return COLOR_SYNTAX_PROPERTY
-	}
-	return COLOR_TEXT
-}
-
 // view_draw_code_line draws one line as runs of equal syntax kind on the
 // monospace grid, ending in an ellipsis when it exceeds columns.
-view_draw_code_line :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, line: string, kinds: []Syntax_Kind, x, top: f32, columns: int, metrics: View_Metrics) {
+view_draw_code_line :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, line: string, kinds: []Syntax_Kind, theme: Syntax_Theme, x, top: f32, columns: int, metrics: View_Metrics) {
 	total := utf8.rune_count_in_string(line)
 	limit := total > columns ? columns-1 : total
 	column, index := 0, 0
@@ -118,7 +103,7 @@ view_draw_code_line :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Conte
 		}
 		run := line[run_start:index]
 		if len(strings.trim_space(run)) > 0 {
-			view_draw_text(text, list, run, x+f32(column)*metrics.char_advance, top, tree.row_height, tree.font_size, view_syntax_color(kind), metrics.height)
+			view_draw_text(text, list, run, x+f32(column)*metrics.char_advance, top, tree.row_height, tree.font_size, theme[kind], metrics.height)
 		}
 		column += run_columns
 	}

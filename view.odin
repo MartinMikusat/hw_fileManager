@@ -26,6 +26,8 @@ Settings_Hot :: enum {
 	EditorPrevious,
 	EditorNext,
 	EditorCustom,
+	SyntaxPrevious,
+	SyntaxNext,
 }
 
 Hot_State :: struct {
@@ -87,6 +89,9 @@ Settings_Layout :: struct {
 	editor_previous: draw.Rect,
 	editor_next: draw.Rect,
 	editor_custom: draw.Rect,
+	syntax_top: f32,
+	syntax_previous: draw.Rect,
+	syntax_next: draw.Rect,
 	hint_top:  f32,
 }
 
@@ -287,7 +292,7 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 7*row+2*pad
+	height := 8*row+2*pad
 	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	title_top := panel.y+pad
 	row_top := title_top+row
@@ -305,6 +310,9 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	editor_previous := draw.Rect{minus.x, editor_top, button, row}
 	custom_width := f32(len(EDITOR_CUSTOM_LABEL))*ch
 	editor_custom := draw.Rect{editor_previous.x-ch-custom_width, editor_top, custom_width, row}
+	syntax_top := editor_top+row
+	syntax_next := draw.Rect{plus.x, syntax_top, button, row}
+	syntax_previous := draw.Rect{minus.x, syntax_top, button, row}
 	return {
 		panel = panel,
 		title_top = title_top,
@@ -320,7 +328,10 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 		editor_previous = editor_previous,
 		editor_next = editor_next,
 		editor_custom = editor_custom,
-		hint_top = editor_top+row,
+		syntax_top = syntax_top,
+		syntax_previous = syntax_previous,
+		syntax_next = syntax_next,
+		hint_top = syntax_top+row,
 	}
 }
 
@@ -348,6 +359,8 @@ view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_
 	if view_rect_has(layout.editor_previous, point) {return .EditorPrevious, true}
 	if view_rect_has(layout.editor_next, point) {return .EditorNext, true}
 	if view_rect_has(layout.editor_custom, point) {return .EditorCustom, true}
+	if view_rect_has(layout.syntax_previous, point) {return .SyntaxPrevious, true}
+	if view_rect_has(layout.syntax_next, point) {return .SyntaxNext, true}
 	if point.x >= layout.animations.x && point.x < layout.animations.x+layout.animations.w &&
 	   point.y >= layout.animations.y && point.y < layout.animations.y+layout.animations.h {
 		return .Animations, true
@@ -710,6 +723,16 @@ view_draw_settings :: proc(
 		editor_name := fmt.tprintf("Text editor: %s", editor_label(settings.editor))
 		view_draw_text(text, list, editor_name, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.editor_custom.x-left-metrics.char_advance, 0))
 	}
+	syntax_buttons := [2]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
+		{layout.syntax_previous, .SyntaxPrevious, PREVIOUS_LABEL},
+		{layout.syntax_next, .SyntaxNext, NEXT_LABEL},
+	}
+	for button in syntax_buttons {
+		inverted := hot.settings_hot == button.hot
+		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		view_draw_text(text, list, button.label, button.rect.x, layout.syntax_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	}
+	view_draw_text(text, list, fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)]), left, layout.syntax_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
 	switch {
 	case editing && len(state.notice) > 0:
 		view_draw_text(text, list, state.notice, left, layout.hint_top, tree.row_height, tree.font_size, COLOR_RED, metrics.height)

@@ -32,6 +32,10 @@ settings_panel_hit_testing_separates_backdrop_from_controls :: proc(t: ^testing.
 	testing.expect_value(t, hot, Settings_Hot.EditorNext)
 	hot, _ = view_settings_hot(layout, {layout.editor_custom.x+layout.editor_custom.w/2, layout.editor_custom.y+layout.editor_custom.h/2})
 	testing.expect_value(t, hot, Settings_Hot.EditorCustom)
+	hot, _ = view_settings_hot(layout, {layout.syntax_previous.x+layout.syntax_previous.w/2, layout.syntax_previous.y+layout.syntax_previous.h/2})
+	testing.expect_value(t, hot, Settings_Hot.SyntaxPrevious)
+	hot, _ = view_settings_hot(layout, {layout.syntax_next.x+layout.syntax_next.w/2, layout.syntax_next.y+layout.syntax_next.h/2})
+	testing.expect_value(t, hot, Settings_Hot.SyntaxNext)
 }
 
 @(test)
@@ -84,7 +88,7 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 
 	_ = os.remove(SETTINGS_TEST_PATH)
 	defer os.remove(SETTINGS_TEST_PATH)
-	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed"}))
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed", syntax_theme = "Nord"}))
 	loaded := settings_defaults()
 	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &loaded))
 	defer delete(loaded.terminal)
@@ -92,6 +96,8 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 	testing.expect(t, loaded.animations_off)
 	defer delete(loaded.editor)
 	testing.expect_value(t, loaded.editor, "Zed")
+	defer delete(loaded.syntax_theme)
+	testing.expect_value(t, loaded.syntax_theme, "Nord")
 }
 
 @(test)
@@ -109,4 +115,20 @@ editor_picker_starts_at_the_system_default_and_validates_typed_apps :: proc(t: ^
 	testing.expect(t, !editor_valid("No Such Editor App"))
 	testing.expect(t, !editor_valid("/etc/passwd"))
 	testing.expect(t, !editor_valid(""))
+}
+
+@(test)
+syntax_themes_are_distinct_named_and_step_around :: proc(t: ^testing.T) {
+	testing.expect_value(t, SYNTAX_THEME_NAMES[0], "Default")
+	testing.expect_value(t, syntax_theme_index("Monokai"), 2)
+	testing.expect_value(t, syntax_theme_index("No such theme"), 0)
+	testing.expect_value(t, syntax_theme_index(""), 0)
+	testing.expect_value(t, syntax_theme_step("Default", -1), "Tokyo Night")
+	testing.expect_value(t, syntax_theme_step("Tokyo Night", 1), "Default")
+	testing.expect_value(t, syntax_theme_step("", 1), "Gruvbox")
+	for index in 0 ..< len(SYNTAX_THEME_NAMES) {
+		colors := syntax_theme(index)
+		for kind in Syntax_Kind {testing.expect(t, colors[kind].a == 1, SYNTAX_THEME_NAMES[index])}
+		if index > 0 {testing.expect(t, colors != syntax_theme(0), SYNTAX_THEME_NAMES[index])}
+	}
 }

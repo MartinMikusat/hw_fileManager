@@ -441,7 +441,7 @@ host_render :: proc() {
 	host.preview_shown = host.preview_shown && host.preview.kind != .None
 	if !preview_text_shown(&host) {host.preview.focused = false}
 	preview_scroll_to(&host, host.preview.scroll)
-	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
+	preview_view := preview_view_make(&host.preview, &host.renderer, scale, syntax_theme(syntax_theme_index(host.settings.syntax_theme)))
 	preview_view.focused = host.preview.focused
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host_settings_view(),
@@ -568,6 +568,15 @@ host_settings_view :: proc() -> Settings {
 
 host_terminal :: proc() -> string {
 	return terminal_effective(host.settings.terminal, host.terminals)
+}
+
+host_settings_syntax :: proc(direction: int) {
+	next := syntax_theme_step(host.settings.syntax_theme, direction)
+	delete(host.settings.syntax_theme)
+	host.settings.syntax_theme = strings.clone(next)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
 }
 
 host_settings_editor :: proc(direction: int) {
@@ -719,6 +728,10 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_settings_editor(-1)
 		} else if hot == .EditorNext {
 			host_settings_editor(1)
+		} else if hot == .SyntaxPrevious {
+			host_settings_syntax(-1)
+		} else if hot == .SyntaxNext {
+			host_settings_syntax(1)
 		} else if hot == .EditorCustom && host.input_mode != .OpenWith {
 			input_begin(&host, .OpenWith)
 			input_set(&host, host.settings.editor)

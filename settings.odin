@@ -16,6 +16,8 @@ Settings :: struct {
 	animations_off: bool,
 	// App the Open action uses for text files, owned; empty means the system default.
 	editor:    string,
+	// Name of the syntax theme for previews, owned; empty or unknown means Default.
+	syntax_theme: string,
 }
 
 Window_Frame :: struct {
@@ -33,6 +35,7 @@ Settings_Document :: struct {
 	terminal:      string `json:"terminal"`,
 	animations_off: bool `json:"animations_off"`,
 	editor:        string `json:"editor"`,
+	syntax_theme:  string `json:"syntax_theme"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -83,6 +86,10 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		settings.place = document.place
 	}
 	settings.animations_off = document.animations_off
+	if len(document.syntax_theme) > 0 {
+		delete(settings.syntax_theme)
+		settings.syntax_theme = document.syntax_theme
+	}
 	if len(document.editor) > 0 {
 		delete(settings.editor)
 		settings.editor = document.editor
@@ -108,6 +115,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		terminal = settings.terminal,
 		animations_off = settings.animations_off,
 		editor = settings.editor,
+		syntax_theme = settings.syntax_theme,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

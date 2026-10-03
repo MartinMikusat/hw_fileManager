@@ -152,7 +152,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		for !view_layout(&tree, metrics) {}
 		preview_rect, preview_shown := view_preview_rect(&tree, metrics)
 		view_draw(&tree, &list, &text, metrics, View_State{
-			preview = preview_view_make(&preview, &renderer, scale),
+			preview = preview_view_make(&preview, &renderer, scale, syntax_theme(syntax_theme_index(settings.syntax_theme))),
 			preview_rect = preview_rect,
 			preview_shown = preview_shown && preview.kind != .None,
 			clip_paths = nil,
