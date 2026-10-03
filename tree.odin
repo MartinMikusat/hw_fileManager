@@ -182,8 +182,31 @@ tree_move :: proc(tree: ^Tree, delta: int) -> bool {
 	column := &tree.columns[tree.active]
 	if len(column.entries) == 0 {return false}
 	next := clamp(column.selected+delta, 0, len(column.entries)-1)
-	if next == column.selected {return false}
+	if next == column.selected {
+		if delta == 1 || delta == -1 {return tree_move_to_sibling(tree, delta)}
+		return false
+	}
 	return tree_select(tree, tree.active, next, enter = false)
+}
+
+// tree_move_to_sibling continues past the end of a child column into the next
+// non-empty folder of its parent column, landing on that folder's first entry
+// going down and its last going up. Nothing changes when there is none.
+tree_move_to_sibling :: proc(tree: ^Tree, direction: int) -> bool {
+	if tree.active < 1 {return false}
+	parent_index := tree.active-1
+	original_row := tree.columns[parent_index].selected
+	child_row := tree.columns[tree.active].selected
+	for row := original_row+direction; row >= 0 && row < len(tree.columns[parent_index].entries); row += direction {
+		if !tree.columns[parent_index].entries[row].is_dir {continue}
+		if !tree_select(tree, parent_index, row) {continue}
+		child := &tree.columns[tree.active]
+		if len(child.entries) == 0 {continue}
+		if direction < 0 {_ = tree_select(tree, tree.active, len(child.entries)-1, enter = false)}
+		return true
+	}
+	if tree_select(tree, parent_index, original_row) {_ = tree_select(tree, tree.active, child_row, enter = false)}
+	return false
 }
 
 tree_expand :: proc(tree: ^Tree) -> bool {

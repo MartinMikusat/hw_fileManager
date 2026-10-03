@@ -122,3 +122,26 @@ tree_navigation_cascades_and_collapses :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(tree.columns), 2)
 	testing.expect_value(t, tree.active, 1)
 }
+
+@(test)
+tree_move_continues_into_the_neighbouring_folder :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT+"/alpha"))
+	testing.expect(t, tree_move(&tree, 1))
+	testing.expect(t, tree_move(&tree, 1))
+	entry, ok := tree_selected_entry(&tree)
+	testing.expect(t, ok && entry.name == "two.txt")
+	testing.expect_value(t, tree.active, 1)
+
+	testing.expect(t, tree_move(&tree, -1))
+	entry, ok = tree_selected_entry(&tree)
+	testing.expect(t, ok && entry.name == "one.txt")
+	testing.expect(t, tree_move(&tree, 1))
+	entry, ok = tree_selected_entry(&tree)
+	testing.expect(t, ok && entry.name == "two.txt")
+}
