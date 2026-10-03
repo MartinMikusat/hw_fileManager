@@ -26,6 +26,9 @@ Entry :: struct {
 	size:     i64,
 	is_dir:   bool,
 	hidden:   bool,
+	// Rank by modification time within the listing: 0 is the newest entry, 1 the
+	// oldest. entry_color draws the recency gradient from it.
+	recency:  f32,
 }
 
 Sort_Key :: enum {
@@ -115,6 +118,7 @@ read_entries :: proc(directory: string, sort: Sort, allocator := context.allocat
 	}
 	entries := list[:]
 	sort_entries(entries, sort)
+	entry_recency_assign(entries)
 	return entries, true
 }
 
@@ -152,6 +156,31 @@ entry_less :: proc(a, b: Entry) -> bool {
 		}
 	}
 	return sort_active.descending ? name_less_fold(b.name, a.name) : name_less_fold(a.name, b.name)
+}
+
+Recency_Row :: struct {
+	modified: time.Time,
+	index:    int,
+}
+
+// recency_less orders rows newest first, so rank 0 is the most recently modified.
+recency_less :: proc(a, b: Recency_Row) -> bool {
+	if difference := time.diff(a.modified, b.modified); difference != 0 {return difference < 0}
+	return a.index < b.index
+}
+
+// entry_recency_assign gives every entry its rank in the listing by modification
+// time, independent of the active display sort, as a 0..1 fraction.
+entry_recency_assign :: proc(entries: []Entry) {
+	count := len(entries)
+	if count == 0 {return}
+	rows := make([]Recency_Row, count, context.temp_allocator)
+	defer delete(rows, context.temp_allocator)
+	for entry, index in entries {rows[index] = {modified = entry.modified, index = index}}
+	slice.sort_by(rows, recency_less)
+	for rank in 0 ..< count {
+		entries[rows[rank].index].recency = count > 1 ? f32(rank)/f32(count-1) : 0
+	}
 }
 
 name_less_fold :: proc(a, b: string) -> bool {

@@ -2,7 +2,6 @@ package file_manager
 
 import "core:fmt"
 import "core:path/filepath"
-import "core:time"
 import "core:unicode/utf8"
 import coretext "ui_framework:coretext"
 import text_input "components:text_input"
@@ -87,7 +86,6 @@ View_State :: struct {
 	notice:           string,
 	notice_error:     bool,
 	shift:            bool,
-	now:              time.Time,
 	settings_tab:     Settings_Tab,
 	width_locked:     bool,
 }
@@ -629,7 +627,7 @@ view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 				view_draw_gather_marker(list, metrics, x-COLUMN_PAD+3, row_top, tree.row_height)
 			}
 			max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
-			color := entry_color(entry.modified, state.now, entry.hidden)
+			color := entry_color(entry.recency, entry.hidden)
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
 			view_draw_text(text, list, entry.name, x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 		}
@@ -681,7 +679,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		if path_list_contains(state.gather_paths, entry.path) {
 			view_draw_gather_marker(list, metrics, column.x-COLUMN_PAD+3, row_top, tree.row_height)
 		}
-		color := entry_color(entry.modified, state.now, entry.hidden)
+		color := entry_color(entry.recency, entry.hidden)
 		max_width := selected ? f32(0) : f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 		if current {
 			color = COLOR_SELECTED

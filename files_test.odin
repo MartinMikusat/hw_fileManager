@@ -5,14 +5,26 @@ import "core:testing"
 import "core:time"
 
 @(test)
-entry_color_fades_by_age :: proc(t: ^testing.T) {
-	now := time.now()
-	// A fresh file is the blue end; anything past the span is plain text.
-	testing.expect_value(t, entry_color(now, now, false), COLOR_RECENT)
-	testing.expect_value(t, entry_color(time.time_add(now, -60*24*time.Hour), now, false), COLOR_TEXT)
-	testing.expect_value(t, entry_color(now, now, true), COLOR_DIM)
-	mid := entry_color(time.time_add(now, -ENTRY_AGE_SPAN/2), now, false)
+entry_color_fades_by_recency_rank :: proc(t: ^testing.T) {
+	// Rank 0 is the blue end; rank 1 is plain text; hidden entries stay dim.
+	testing.expect_value(t, entry_color(0, false), COLOR_RECENT)
+	testing.expect_value(t, entry_color(1, false), COLOR_TEXT)
+	testing.expect_value(t, entry_color(0, true), COLOR_DIM)
+	mid := entry_color(0.5, false)
 	testing.expect(t, mid != COLOR_RECENT && mid != COLOR_TEXT)
+}
+
+@(test)
+entry_recency_assign_ranks_newest_to_oldest :: proc(t: ^testing.T) {
+	entries := []Entry{
+		{name = "middle", modified = time.time_add(time.Time{}, 200)},
+		{name = "oldest", modified = time.time_add(time.Time{}, 100)},
+		{name = "newest", modified = time.time_add(time.Time{}, 300)},
+	}
+	entry_recency_assign(entries)
+	testing.expect_value(t, entries[2].recency, f32(0))
+	testing.expect_value(t, entries[0].recency, f32(0.5))
+	testing.expect_value(t, entries[1].recency, f32(1))
 }
 
 @(test)

@@ -172,7 +172,6 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			sort_open = sort_menu,
 			shift = shift,
 			hot = Hot_State{control = -1},
-			now = time.now(),
 		})
 		coretext.flush(&text)
 		command_buffer := queue->commandBuffer()

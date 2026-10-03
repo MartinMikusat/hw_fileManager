@@ -2,7 +2,6 @@ package file_manager
 
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
-import "core:time"
 
 FONT_MONO :: ui.Font_Handle(1)
 
@@ -21,7 +20,6 @@ COLOR_BACKGROUND    :: draw.Color{0.043, 0.043, 0.051, 1.0}
 COLOR_TEXT          :: draw.Color{0.855, 0.855, 0.871, 1.0}
 COLOR_DIM           :: draw.Color{0.510, 0.510, 0.541, 1.0}
 COLOR_RECENT        :: draw.Color{0.427, 0.620, 0.973, 1.0}
-ENTRY_AGE_SPAN      :: 30*24*time.Hour
 COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
 COLOR_SELECTED_ROW  :: draw.Color{0.780, 0.100, 0.130, 1.0}
 COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
@@ -58,12 +56,12 @@ row_height_for :: proc(font_size, ratio: f32) -> f32 {
 // width is measured with it, so columns stay aligned.
 text_tracking: f32
 
-// entry_color fades from blue for fresh entries to the plain text colour for
-// everything older than ENTRY_AGE_SPAN, so only recent entries are highlighted.
-entry_color :: proc(modified, now: time.Time, hidden: bool) -> draw.Color {
+// entry_color fades from blue for the newest entry in a listing to the plain
+// text colour for the oldest, so a column shows the full gradient by recency
+// rank rather than by absolute age.
+entry_color :: proc(recency: f32, hidden: bool) -> draw.Color {
 	if hidden {return COLOR_DIM}
-	t := clamp(f32(time.diff(modified, now))/f32(ENTRY_AGE_SPAN), 0, 1)
-	return color_lerp(COLOR_RECENT, COLOR_TEXT, t)
+	return color_lerp(COLOR_RECENT, COLOR_TEXT, clamp(recency, 0, 1))
 }
 
 color_lerp :: proc(a, b: draw.Color, t: f32) -> draw.Color {

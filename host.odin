@@ -488,7 +488,6 @@ host_render :: proc() {
 		notice = notice,
 		notice_error = notice_error,
 		shift = host.shift_down,
-		now = now,
 	})
 	coretext.flush(&host.text)
 	if !metal.encode_to_drawable(
