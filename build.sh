@@ -60,7 +60,14 @@ mkdir -p "$APP/Contents/Resources/licenses"
 cp "$ROOT/fonts/OFL.md" "$APP/Contents/Resources/licenses/Iosevka-OFL.md"
 cp "$ROOT/assets/app-icon/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 PLIST="$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$PLIST" 2>/dev/null ||
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$PLIST"
+MINOS=$(vtool -show-build "$BUILD/file_manager" | sed -n 's/^ *minos //p' | head -1)
+plist_set() { # key type value
+  /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :$1 $3" "$PLIST"
+}
+plist_set CFBundleIconFile string AppIcon
+plist_set CFBundleVersion string "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+plist_set LSMinimumSystemVersion string "${MINOS:-14.0}"
+plist_set NSHighResolutionCapable bool true
+plist_set LSApplicationCategoryType string public.app-category.utilities
 # The resource copy invalidates the signature the packaging step applied in release.
 if [ "$MODE" = "release" ]; then codesign --force --sign - "$APP"; fi
