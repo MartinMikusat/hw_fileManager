@@ -139,16 +139,15 @@ action_paste :: proc(host: ^Host) {
 		notice_set(host, host.clip_cut ? "move failed" : "copy failed")
 		return
 	}
-	devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage})
+	devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage, scope = filepath.base(directory)})
 	if host.clip_cut {action_clear_clip(host)}
 	_ = tree_refresh(&host.tree)
 }
 
-// action_paste_directory is the folder shown at the right edge of the cascade: the
-// selected entry when it is a folder (its preview column), else the active column.
+// action_paste_directory is the folder of the focused column, the one the pasted
+// file appears in; enter a highlighted folder first to paste into it.
 action_paste_directory :: proc(tree: ^Tree) -> (string, bool) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return "", false}
-	if entry, ok := tree_selected_entry(tree); ok && entry.is_dir {return entry.path, true}
 	return tree.columns[tree.active].dir, true
 }
 
