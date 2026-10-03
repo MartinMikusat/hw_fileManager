@@ -494,7 +494,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		bar_height = 2*host.tree.row_height,
 	}
 	if host.edit_mode != .None {
-		edit_cancel(&host)
+		edit_commit(&host)
 		host_request_frames(2)
 		return
 	}

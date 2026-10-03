@@ -159,6 +159,7 @@ edit_commit :: proc(host: ^Host) {
 		notice_set(host, "name could not be applied")
 		return
 	}
+	devlog.succeeded(devlog.global(), {feature = "files", operation = "edit_name"}, {file_id = name, stage = mode == .Rename ? "rename" : "new_file"})
 	column := host.edit_column
 	edit_cancel(host)
 	_ = tree_refresh(&host.tree)
@@ -221,7 +222,7 @@ edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, optio
 		if option {_ = text_input.delete_word_backward(state, target)} else {_ = text_input.delete_backward(state, target)}
 	case key == 117:
 		_ = text_input.delete_forward(state, target)
-	case key == 36:
+	case key == 36, key == 76:
 		edit_commit(host)
 	case key == 53:
 		edit_cancel(host)
