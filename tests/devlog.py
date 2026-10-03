@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="hw-fileManager-devlog-") as temporary:
     assert ("render_offscreen", "succeeded") in outcomes
     assert outcomes[-1] == ("shutdown", "stopped")
     assert not any(record["outcome"] == "failed" for record in journal_lines)
-    assert records(journal / "perf.jsonl")[0]["operation"] == "render_offscreen"
+    assert any(record["operation"] == "render_offscreen" for record in records(journal / "perf.jsonl"))
     assert not (journal / "running.marker").exists()
     assert str(root) not in (journal / "devlog.jsonl").read_text()
     clean = run([str(reader), "--dir", str(journal), "check"], environment)

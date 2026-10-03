@@ -59,6 +59,8 @@ Host :: struct {
 	history_index:  int,
 	draft:          string,
 	cd_completing:  bool,
+	place_pending:  string,
+	place_since:    time.Tick,
 	clip_path:      string,
 	clip_cut:       bool,
 	edit_mode:      Edit_Mode,
@@ -283,18 +285,41 @@ host_restore_place :: proc() -> bool {
 	return true
 }
 
-// host_remember_place stores the selected path (or the active folder) so the next
-// start resumes there, saving only when it changed.
+PLACE_SETTLE :: 500*time.Millisecond
+
+host_current_place :: proc() -> string {
+	if entry, ok := tree_selected_entry(&host.tree); ok {return entry.path}
+	if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {return host.tree.columns[host.tree.active].dir}
+	return ""
+}
+
+// host_remember_place stores the selected path (or the active folder) so the next start
+// resumes there. The write waits until the selection has rested, so moving through names
+// does no disk work; the pending place is also written at quit.
 host_remember_place :: proc() {
-	place := ""
-	if entry, ok := tree_selected_entry(&host.tree); ok {
-		place = entry.path
-	} else if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {
-		place = host.tree.columns[host.tree.active].dir
+	place := host_current_place()
+	if len(place) == 0 || place == host.settings.place {
+		delete(host.place_pending)
+		host.place_pending = ""
+		return
 	}
-	if len(place) == 0 || place == host.settings.place {return}
+	if place != host.place_pending {
+		delete(host.place_pending)
+		host.place_pending = strings.clone(place)
+		host.place_since = time.tick_now()
+	}
+	if time.tick_since(host.place_since) < PLACE_SETTLE {
+		host_request_frames(1)
+		return
+	}
+	host_flush_place()
+}
+
+host_flush_place :: proc() {
+	if len(host.place_pending) == 0 {return}
 	delete(host.settings.place)
-	host.settings.place = strings.clone(place)
+	host.settings.place = host.place_pending
+	host.place_pending = ""
 	host_capture_window_frame()
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 }
@@ -387,7 +412,7 @@ host_render :: proc() {
 	}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
-	preview_update(&host.preview, &host.tree, host.device)
+	if preview_update(&host.preview, &host.tree, host.device) {host_request_frames(1)}
 	if !view_layout(&host.tree, metrics, edit) {host_request_frames(1)}
 	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
 	preview_view := preview_view_make(&host.preview, &host.renderer, scale)
@@ -486,6 +511,7 @@ host_capture_window_frame :: proc() {
 
 host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
 	context = runtime.default_context()
+	host_flush_place()
 	host_capture_window_frame()
 	_ = settings_save(settings_path(context.temp_allocator), host.settings)
 }

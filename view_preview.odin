@@ -39,6 +39,8 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	area := draw.Rect{rect.x+inset, rect.y+inset, rect.w-2*inset, rect.h-2*inset}
 	switch preview.kind {
 	case .None:
+	case .Cloud:
+		view_draw_text(text, list, "In iCloud, not downloaded", area.x, area.y, tree.row_height, tree.font_size, COLOR_DIM, metrics.height, area.w)
 	case .Text:
 		rows := int(area.h/tree.row_height)
 		columns := int(area.w/metrics.char_advance)
