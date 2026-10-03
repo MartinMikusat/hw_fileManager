@@ -23,6 +23,9 @@ Settings_Hot :: enum {
 	Previous,
 	Next,
 	Animations,
+	EditorPrevious,
+	EditorNext,
+	EditorCustom,
 }
 
 Hot_State :: struct {
@@ -67,6 +70,8 @@ MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
 PREVIOUS_LABEL :: "[<]"
 NEXT_LABEL :: "[>]"
+EDITOR_CUSTOM_LABEL :: "[Other]"
+OPEN_WITH_PROMPT :: "open text files with: "
 
 Settings_Layout :: struct {
 	panel:     draw.Rect,
@@ -79,6 +84,10 @@ Settings_Layout :: struct {
 	next:      draw.Rect,
 	animations_top: f32,
 	animations: draw.Rect,
+	editor_top: f32,
+	editor_previous: draw.Rect,
+	editor_next: draw.Rect,
+	editor_custom: draw.Rect,
 	hint_top:  f32,
 }
 
@@ -279,7 +288,7 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 6*row+2*pad
+	height := 7*row+2*pad
 	panel := draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	title_top := panel.y+pad
 	row_top := title_top+row
@@ -292,6 +301,11 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 	animations_top := terminal_top+row
 	toggle := 5*ch
 	animations := draw.Rect{plus.x+plus.w-toggle, animations_top, toggle, row}
+	editor_top := animations_top+row
+	editor_next := draw.Rect{plus.x, editor_top, button, row}
+	editor_previous := draw.Rect{minus.x, editor_top, button, row}
+	custom_width := f32(len(EDITOR_CUSTOM_LABEL))*ch
+	editor_custom := draw.Rect{editor_previous.x-ch-custom_width, editor_top, custom_width, row}
 	return {
 		panel = panel,
 		title_top = title_top,
@@ -303,8 +317,16 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Settings_Lay
 		next = next,
 		animations_top = animations_top,
 		animations = animations,
-		hint_top = animations_top+row,
+		editor_top = editor_top,
+		editor_previous = editor_previous,
+		editor_next = editor_next,
+		editor_custom = editor_custom,
+		hint_top = editor_top+row,
 	}
+}
+
+view_rect_has :: proc(rect: draw.Rect, point: ui.Vec2) -> bool {
+	return point.x >= rect.x && point.x < rect.x+rect.w && point.y >= rect.y && point.y < rect.y+rect.h
 }
 
 view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_Hot, bool) {
@@ -324,6 +346,9 @@ view_settings_hot :: proc(layout: Settings_Layout, point: ui.Vec2) -> (Settings_
 	   point.y >= layout.next.y && point.y < layout.next.y+layout.next.h {
 		return .Next, true
 	}
+	if view_rect_has(layout.editor_previous, point) {return .EditorPrevious, true}
+	if view_rect_has(layout.editor_next, point) {return .EditorNext, true}
+	if view_rect_has(layout.editor_custom, point) {return .EditorCustom, true}
 	if point.x >= layout.animations.x && point.x < layout.animations.x+layout.animations.w &&
 	   point.y >= layout.animations.y && point.y < layout.animations.y+layout.animations.h {
 		return .Animations, true
@@ -564,6 +589,9 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 	switch state.input_mode {
 	case .Cd:
 		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false, state.input_caret, state.input_sel_start, state.input_sel_end)
+	case .OpenWith:
+		prompt := len(OPEN_WITH_PROMPT)
+		view_bar_text(text, list, fmt.tprintf("%s%s", OPEN_WITH_PROMPT, state.input), tree, metrics, COLOR_TEXT, false, prompt+state.input_caret, prompt+state.input_sel_start, prompt+state.input_sel_end)
 	case .Search:
 		if len(state.input) == 0 {
 			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false, 1)
@@ -641,6 +669,18 @@ view_draw_settings :: proc(
 	if hot.settings_hot == .Animations {draw.solid(list, toggle, COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, "Animations", left, layout.animations_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, settings.animations_off ? "[off]" : "[on]", layout.animations.x, layout.animations_top, tree.row_height, tree.font_size, hot.settings_hot == .Animations ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	editor_buttons := [3]struct{rect: draw.Rect, hot: Settings_Hot, label: string}{
+		{layout.editor_previous, .EditorPrevious, PREVIOUS_LABEL},
+		{layout.editor_next, .EditorNext, NEXT_LABEL},
+		{layout.editor_custom, .EditorCustom, EDITOR_CUSTOM_LABEL},
+	}
+	for button in editor_buttons {
+		inverted := hot.settings_hot == button.hot
+		if inverted {draw.solid(list, view_rect_draw(button.rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		view_draw_text(text, list, button.label, button.rect.x, layout.editor_top, tree.row_height, tree.font_size, inverted ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	}
+	editor_name := fmt.tprintf("Text editor: %s", editor_label(settings.editor))
+	view_draw_text(text, list, editor_name, left, layout.editor_top, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height, max(layout.editor_custom.x-left-metrics.char_advance, 0))
 	view_draw_text(text, list, "⌘, opens · esc closes", left, layout.hint_top, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 }
 

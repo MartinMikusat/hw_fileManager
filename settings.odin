@@ -14,6 +14,8 @@ Settings :: struct {
 	// Terminal app opened by the Terminal action, owned; empty means the first installed.
 	terminal:  string,
 	animations_off: bool,
+	// App the Open action uses for text files, owned; empty means the system default.
+	editor:    string,
 }
 
 Window_Frame :: struct {
@@ -30,6 +32,7 @@ Settings_Document :: struct {
 	place:         string `json:"place"`,
 	terminal:      string `json:"terminal"`,
 	animations_off: bool `json:"animations_off"`,
+	editor:        string `json:"editor"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -80,6 +83,10 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		settings.place = document.place
 	}
 	settings.animations_off = document.animations_off
+	if len(document.editor) > 0 {
+		delete(settings.editor)
+		settings.editor = document.editor
+	}
 	if len(document.terminal) > 0 {
 		delete(settings.terminal)
 		settings.terminal = document.terminal
@@ -100,6 +107,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		place = settings.place,
 		terminal = settings.terminal,
 		animations_off = settings.animations_off,
+		editor = settings.editor,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

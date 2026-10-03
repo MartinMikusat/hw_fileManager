@@ -156,12 +156,17 @@ action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	host_request_frames(2)
 }
 
-// action_open opens the selected file in its default app. Enter does this for
-// everything except text files, which it previews; this is their way in.
+// action_open opens the selected file in its default app, or in the editor chosen
+// in settings when it is a text file. Enter does this for everything except text
+// files, which it previews; this is their way in.
 action_open :: proc(host: ^Host) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok || entry.is_dir {return}
-	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "--", entry.path}}, context.allocator)
+	command := []string{"/usr/bin/open", "--", entry.path}
+	if host.preview.kind == .Text && len(host.settings.editor) > 0 {
+		command = []string{"/usr/bin/open", "-a", host.settings.editor, "--", entry.path}
+	}
+	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = command}, context.allocator)
 	defer delete(stdout, context.allocator)
 	defer delete(stderr, context.allocator)
 	if err != nil || !state.success || state.exit_code != 0 {

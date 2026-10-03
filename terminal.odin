@@ -15,7 +15,7 @@ Terminals :: struct {
 
 terminal_app_installed :: proc(name: string) -> bool {
 	home := os.get_env("HOME", context.temp_allocator)
-	for root in ([3]string{"/Applications", "/System/Applications/Utilities", strings.concatenate({home, "/Applications"}, context.temp_allocator)}) {
+	for root in ([4]string{"/Applications", "/System/Applications", "/System/Applications/Utilities", strings.concatenate({home, "/Applications"}, context.temp_allocator)}) {
 		if os.is_dir(strings.concatenate({root, "/", name, ".app"}, context.temp_allocator)) {return true}
 	}
 	return false

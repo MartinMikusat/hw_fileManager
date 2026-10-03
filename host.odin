@@ -81,6 +81,7 @@ Host :: struct {
 	hot_action_hot: bool,
 	shift_down:     bool,
 	terminals:      Terminals,
+	editors:        Editors,
 	frames_pending: int,
 	wheel_rows:     f32,
 	frame_tick:     time.Tick,
@@ -261,6 +262,7 @@ host_initialize :: proc() -> bool {
 	tree_set_font_size(&host.tree, f32(host.settings.font_size))
 	host.zoxide = cd_zoxide()
 	host.terminals = terminals_detect()
+	host.editors = editors_detect()
 	update_start()
 	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
 	if len(start) > 0 {
@@ -568,6 +570,35 @@ host_terminal :: proc() -> string {
 	return terminal_effective(host.settings.terminal, host.terminals)
 }
 
+host_settings_editor :: proc(direction: int) {
+	next := editor_step(host.settings.editor, host.editors, direction)
+	host_save_editor(next)
+}
+
+host_save_editor :: proc(name: string) {
+	delete(host.settings.editor)
+	host.settings.editor = strings.clone(name)
+	host_capture_window_frame()
+	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	host_request_frames(2)
+}
+
+// host_open_with_commit stores the typed app when it exists; otherwise the field
+// stays open with a notice.
+host_open_with_commit :: proc() {
+	name := strings.trim_space(host.input_value)
+	if len(name) == 0 {
+		host_save_editor("")
+	} else if editor_valid(name) {
+		host_save_editor(name)
+	} else {
+		notice_set(&host, "no such app")
+		return
+	}
+	input_reset(&host)
+	notice_set(&host, strings.concatenate({"text files open with ", editor_label(host.settings.editor)}, context.temp_allocator))
+}
+
 host_settings_animations :: proc() {
 	host.settings.animations_off = !host.settings.animations_off
 	host_capture_window_frame()
@@ -680,6 +711,15 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_settings_terminal(1)
 		} else if hot == .Animations {
 			host_settings_animations()
+		} else if hot == .EditorPrevious {
+			host_settings_editor(-1)
+		} else if hot == .EditorNext {
+			host_settings_editor(1)
+		} else if hot == .EditorCustom {
+			host.settings_open = false
+			input_begin(&host, .OpenWith)
+			input_set(&host, host.settings.editor)
+			host_request_frames(2)
 		}
 		return
 	}
@@ -865,6 +905,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 36, key == 76:
 		switch host.input_mode {
 		case .Cd:     cd_run(&host)
+		case .OpenWith: host_open_with_commit()
 		case .Search:
 			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
 		case .None:   host_enter()

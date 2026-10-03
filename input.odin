@@ -11,6 +11,8 @@ Input_Mode :: enum {
 	None,
 	Cd,
 	Search,
+	// The app typed in settings to open text files with.
+	OpenWith,
 }
 
 // input_begin focuses the bottom-bar field for a cd query or a search.
@@ -52,7 +54,7 @@ input_set :: proc(host: ^Host, text: string) {
 // input_editing is true while the field takes caret, selection and word commands;
 // a committed search uses the keys for navigation instead.
 input_editing :: proc(host: ^Host) -> bool {
-	return host.input_mode == .Cd || (host.input_mode == .Search && !host.search_committed)
+	return host.input_mode == .Cd || host.input_mode == .OpenWith || (host.input_mode == .Search && !host.search_committed)
 }
 
 // input_handle_key routes text-editing keys to the bar field.

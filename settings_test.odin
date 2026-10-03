@@ -26,6 +26,12 @@ settings_panel_hit_testing_separates_backdrop_from_controls :: proc(t: ^testing.
 	testing.expect_value(t, hot, Settings_Hot.Next)
 	hot, _ = view_settings_hot(layout, {layout.animations.x+layout.animations.w/2, layout.animations.y+layout.animations.h/2})
 	testing.expect_value(t, hot, Settings_Hot.Animations)
+	hot, _ = view_settings_hot(layout, {layout.editor_previous.x+layout.editor_previous.w/2, layout.editor_previous.y+layout.editor_previous.h/2})
+	testing.expect_value(t, hot, Settings_Hot.EditorPrevious)
+	hot, _ = view_settings_hot(layout, {layout.editor_next.x+layout.editor_next.w/2, layout.editor_next.y+layout.editor_next.h/2})
+	testing.expect_value(t, hot, Settings_Hot.EditorNext)
+	hot, _ = view_settings_hot(layout, {layout.editor_custom.x+layout.editor_custom.w/2, layout.editor_custom.y+layout.editor_custom.h/2})
+	testing.expect_value(t, hot, Settings_Hot.EditorCustom)
 }
 
 @(test)
@@ -78,10 +84,29 @@ terminal_picker_steps_through_installed_apps_and_round_trips :: proc(t: ^testing
 
 	_ = os.remove(SETTINGS_TEST_PATH)
 	defer os.remove(SETTINGS_TEST_PATH)
-	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true}))
+	testing.expect(t, settings_save(SETTINGS_TEST_PATH, {font_size = 14, terminal = "WezTerm", animations_off = true, editor = "Zed"}))
 	loaded := settings_defaults()
 	testing.expect(t, settings_load(SETTINGS_TEST_PATH, &loaded))
 	defer delete(loaded.terminal)
 	testing.expect_value(t, loaded.terminal, "WezTerm")
 	testing.expect(t, loaded.animations_off)
+	defer delete(loaded.editor)
+	testing.expect_value(t, loaded.editor, "Zed")
+}
+
+@(test)
+editor_picker_starts_at_the_system_default_and_validates_typed_apps :: proc(t: ^testing.T) {
+	found := Editors{names = {1 = "Zed", 2 = "TextEdit"}, count = 3}
+	testing.expect_value(t, editor_step("", found, 1), "Zed")
+	testing.expect_value(t, editor_step("Zed", found, 1), "TextEdit")
+	testing.expect_value(t, editor_step("TextEdit", found, 1), "")
+	testing.expect_value(t, editor_step("", found, -1), "TextEdit")
+	testing.expect_value(t, editor_step("Custom", found, 1), "")
+	testing.expect_value(t, editor_label(""), EDITOR_DEFAULT_LABEL)
+	testing.expect(t, editor_valid("TextEdit"))
+	testing.expect(t, editor_valid("TextEdit.app"))
+	testing.expect(t, editor_valid("/System/Applications/TextEdit.app"))
+	testing.expect(t, !editor_valid("No Such Editor App"))
+	testing.expect(t, !editor_valid("/etc/passwd"))
+	testing.expect(t, !editor_valid(""))
 }
