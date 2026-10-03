@@ -99,7 +99,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		return false
 	}
 	defer metal.renderer_destroy(&renderer)
-	if !register_system_monospaced(&text) {return false}
+	register_mono_font(&text)
 
 	tree: Tree
 	tree_init(&tree)

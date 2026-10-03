@@ -82,19 +82,8 @@ Host :: struct {
 
 host: Host
 
-register_system_monospaced :: proc(text: ^coretext.Context) -> bool {
-	font := intrinsics.objc_send(
-		^NS.Object,
-		cast(^NS.Object)intrinsics.objc_find_class("NSFont"),
-		"monospacedSystemFontOfSize:weight:",
-		f64(DEFAULT_FONT_SIZE),
-		f64(0),
-	)
-	if font == nil {return false}
-	name := intrinsics.objc_send(^NS.String, font, "fontName")
-	if name == nil {return false}
-	coretext.register_font(text, FONT_MONO, NS.String_odinString(name))
-	return true
+register_mono_font :: proc(text: ^coretext.Context) {
+	coretext.register_font(text, FONT_MONO, FONT_POSTSCRIPT)
 }
 
 measure_char_advance :: proc(text: ^coretext.Context, font_size: f32) -> f32 {
@@ -167,11 +156,7 @@ host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, 
 host_initialize :: proc() -> bool {
 	coretext.context_init(&host.text)
 	draw.list_init(&host.list, pixel_ratio = 2)
-	if !register_system_monospaced(&host.text) {
-		fmt.eprintln("[hw_fileManager] could not register the system monospaced font")
-		host_failure("system monospaced font could not be registered", .Critical)
-		return false
-	}
+	register_mono_font(&host.text)
 	delegate, view_class, ok := host_register_classes()
 	if !ok {
 		fmt.eprintln("[hw_fileManager] could not register the Cocoa classes")
