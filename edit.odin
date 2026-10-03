@@ -35,6 +35,7 @@ edit_text :: proc(host: ^Host) -> string {
 // on the active column's first row for NewFile.
 edit_begin :: proc(host: ^Host, mode: Edit_Mode) {
 	edit_cancel(host)
+	input_reset(host)
 	initial := ""
 	if mode == .Rename {
 		entry, ok := tree_selected_entry(&host.tree)
@@ -175,10 +176,9 @@ edit_insertable :: proc(value: string) -> bool {
 	return true
 }
 
-// edit_handle_key routes editing keys through the shared text-input state, the
-// same caret/selection/word commands the other apps' fields use.
-edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
-	target := &host.edit_value
+// field_handle_key applies the shared text-field commands (insertion, caret,
+// selection, word and line motion, deletion, clipboard) to target.
+field_handle_key :: proc(host: ^Host, target: ^string, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
 	state := &host.text_state
 	if !command && !control {
 		if characters := event->characters(); characters != nil {
@@ -193,11 +193,12 @@ edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, optio
 	case command && key == 0:
 		text_input.set_selection(state, target^, 0, len(target^))
 	case command && key == 8:
-		edit_clipboard_copy(host)
+		edit_clipboard_copy(host, target^)
 	case command && key == 7:
-		edit_clipboard_cut(host)
+		edit_clipboard_copy(host, target^)
+		_ = text_input.remove_selection(state, target)
 	case command && key == 9:
-		edit_clipboard_paste(host)
+		edit_clipboard_paste(host, target)
 	case key == 123:
 		switch {
 		case command: text_input.move_line_start(state, target^, shift)
@@ -222,12 +223,19 @@ edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, optio
 		if option {_ = text_input.delete_word_backward(state, target)} else {_ = text_input.delete_backward(state, target)}
 	case key == 117:
 		_ = text_input.delete_forward(state, target)
-	case key == 36, key == 76:
-		edit_commit(host)
-	case key == 53:
-		edit_cancel(host)
 	case:
 		return false
+	}
+	return true
+}
+
+// edit_handle_key adds Return and Escape to the shared field commands.
+edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
+	if field_handle_key(host, &host.edit_value, event, key, command, option, control, shift) {return true}
+	switch key {
+	case 36, 76: edit_commit(host)
+	case 53:     edit_cancel(host)
+	case:        return false
 	}
 	return true
 }
@@ -251,8 +259,8 @@ edit_pasteboard :: proc() -> ^NS.Object {
 	return intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSPasteboard"), "generalPasteboard")
 }
 
-edit_clipboard_copy :: proc(host: ^Host) {
-	selected := text_input.selected_text(&host.text_state, host.edit_value)
+edit_clipboard_copy :: proc(host: ^Host, value: string) {
+	selected := text_input.selected_text(&host.text_state, value)
 	if len(selected) == 0 {return}
 	pasteboard := edit_pasteboard()
 	if pasteboard == nil {return}
@@ -260,19 +268,13 @@ edit_clipboard_copy :: proc(host: ^Host) {
 	_ = intrinsics.objc_send(NS.BOOL, pasteboard, "setString:forType:", edit_nsstring(selected), edit_nsstring("public.utf8-plain-text"))
 }
 
-edit_clipboard_cut :: proc(host: ^Host) {
-	if !text_input.has_selection(&host.text_state, host.edit_value) {return}
-	edit_clipboard_copy(host)
-	_ = text_input.remove_selection(&host.text_state, &host.edit_value)
-}
-
-edit_clipboard_paste :: proc(host: ^Host) {
+edit_clipboard_paste :: proc(host: ^Host, target: ^string) {
 	pasteboard := edit_pasteboard()
 	if pasteboard == nil {return}
 	value := intrinsics.objc_send(^NS.String, pasteboard, "stringForType:", edit_nsstring("public.utf8-plain-text"))
 	if value == nil {return}
 	text := NS.String_odinString(value)
 	if !edit_insertable(text) {return}
-	_ = text_input.remove_marked_text(&host.text_state, &host.edit_value)
-	_ = text_input.insert_text(&host.text_state, &host.edit_value, text)
+	_ = text_input.remove_marked_text(&host.text_state, target)
+	_ = text_input.insert_text(&host.text_state, target, text)
 }

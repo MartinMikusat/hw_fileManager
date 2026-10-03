@@ -49,17 +49,14 @@ Host :: struct {
 	settings:       Settings,
 	settings_open:  bool,
 	zoxide:         string,
-	input:          [INPUT_MAX]u8,
-	input_len:      int,
+	input_value:    string,
 	input_mode:     Input_Mode,
 	search_index:   int,
 	search_committed: bool,
-	history:        [HISTORY_MAX][INPUT_MAX]u8,
-	history_len:    [HISTORY_MAX]int,
+	history:        [HISTORY_MAX]string,
 	history_count:  int,
 	history_index:  int,
-	draft:          [INPUT_MAX]u8,
-	draft_len:      int,
+	draft:          string,
 	cd_completing:  bool,
 	clip_path:      string,
 	clip_cut:       bool,
@@ -268,6 +265,7 @@ host_shutdown :: proc() {
 	if !host.initialized {return}
 	if len(host.clip_path) > 0 {delete(host.clip_path, context.allocator)}
 	edit_cancel(&host)
+	input_destroy(&host)
 	text_input.destroy(&host.text_state)
 	macos.display_link_stop(&host.display_link)
 	tree_destroy(&host.tree)
@@ -344,6 +342,8 @@ host_render :: proc() {
 		notice = string(host.notice[:host.notice_len])
 		notice_error = true
 	}
+	input_sel_start, input_sel_end := 0, 0
+	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
 	view_layout(&host.tree, metrics, edit)
 	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
 		settings = host.settings,
@@ -357,6 +357,10 @@ host_render :: proc() {
 		},
 		input_mode = host.input_mode,
 		input = input_text(&host),
+		input_editing = input_editing(&host),
+		input_caret = host.text_state.caret_byte_offset,
+		input_sel_start = input_sel_start,
+		input_sel_end = input_sel_end,
 		search_committed = host.search_committed,
 		cd_completing = host.cd_completing,
 		clip_path = host.clip_path,
@@ -597,19 +601,23 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		host_request_frames(2)
 		return
 	}
+	if input_editing(&host) && key != 36 && key != 76 && key != 53 && key != 48 && key != 125 && key != 126 {
+		if input_handle_key(&host, event, key, command, option, control, shift) {
+			host_request_frames(2)
+			return
+		}
+	}
 	if !command && !control {
 		if characters := event->characters(); characters != nil {
 			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
 				switch {
-				case text[0] == '/' && host.input_mode != .Search:
+				case text[0] == '/' && host.input_mode == .None:
 					search_begin(&host)
 				case text[0] >= '1' && text[0] <= '5' && host.input_mode == .None:
 					// Numbered action shortcuts are handled in the switch below.
-				case host.input_mode == .Search && host.search_committed:
-					// n/N are navigation and are handled below.
-				case:
-					if host.input_mode == .None {host.input_mode = .Cd}
-					input_append(&host, text[0])
+				case host.input_mode == .None:
+					input_begin(&host, .Cd)
+					_ = text_input.insert_text(&host.text_state, &host.input_value, text)
 				}
 			}
 		}
@@ -628,10 +636,9 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case command && key == 15:
 		_ = tree_refresh(&host.tree)
 	case key == 51:
-		if host.input_len > 0 {
-			host.input_len -= 1
-			host.cd_completing = false
-			if host.input_mode == .Search && host.search_committed {search_refresh(&host)}
+		if host.input_mode == .Search && host.search_committed {
+			_ = text_input.delete_backward(&host.text_state, &host.input_value)
+			search_refresh(&host)
 		}
 	case key == 53:
 		input_reset(&host)
@@ -643,11 +650,11 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		_ = tree_collapse(&host.tree)
 	case key == 124:
 		_ = tree_expand(&host.tree)
-	case key == 36:
+	case key == 36, key == 76:
 		switch host.input_mode {
 		case .Cd:     cd_run(&host)
 		case .Search:
-			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; search_commit(&host)}
+			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
 		case .None:   _ = tree_expand(&host.tree)
 		}
 	case key == 48:

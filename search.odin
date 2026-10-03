@@ -43,8 +43,7 @@ search_match_row :: proc(column: ^Column, query: string, nth: int) -> int {
 }
 
 search_begin :: proc(host: ^Host) {
-	input_reset(host)
-	host.input_mode = .Search
+	input_begin(host, .Search)
 }
 
 search_refresh :: proc(host: ^Host) {

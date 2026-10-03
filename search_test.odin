@@ -4,7 +4,7 @@ import "core:strings"
 import "core:testing"
 
 append_query :: proc(host: ^Host, value: string) {
-	for index in 0 ..< len(value) {input_append(host, value[index])}
+	input_set(host, value)
 }
 
 @(test)
@@ -19,6 +19,7 @@ search_commit_jumps_to_the_first_match :: proc(t: ^testing.T) {
 	testing.expect(t, tree_open(&host.tree, start))
 	testing.expect_value(t, host.tree.columns[host.tree.active].entries[0].name, "nested")
 
+	defer input_destroy(&host)
 	host.input_mode = .Search
 	append_query(&host, "one")
 	search_commit(&host)
@@ -30,6 +31,7 @@ search_commit_jumps_to_the_first_match :: proc(t: ^testing.T) {
 @(test)
 input_history_walks_submitted_queries :: proc(t: ^testing.T) {
 	host: Host
+	defer input_destroy(&host)
 	append_query(&host, "alpha")
 	input_history_push(&host)
 	input_reset(&host)

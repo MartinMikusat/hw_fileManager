@@ -37,6 +37,10 @@ View_State :: struct {
 	input:            string,
 	search_committed: bool,
 	cd_completing:    bool,
+	input_editing:    bool,
+	input_caret:      int,
+	input_sel_start:  int,
+	input_sel_end:    int,
 	clip_path:        string,
 	clip_cut:         bool,
 	edit:             View_Edit,
@@ -349,18 +353,32 @@ view_edit_offset :: proc(text: ^coretext.Context, run: ^coretext.Shaped_Run, val
 }
 
 // view_bar_text right-aligns on overflow so the search counter stays visible.
-view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool) {
-	if len(value) == 0 {return}
+// A caret at or above zero draws the field's caret and selection (byte offsets
+// into value).
+view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool, caret := -1, sel_start := 0, sel_end := 0) {
+	row_bottom := metrics.bar_height-tree.row_height
+	if len(value) == 0 {
+		if caret >= 0 {draw.solid(list, {COLUMN_PAD, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)}
+		return
+	}
 	run := coretext.shape(text, FONT_MONO, value, tree.font_size, 0, 0, false)
 	if run == nil {return}
 	x := COLUMN_PAD
 	if right_align {
 		if width := run.metrics.width; x+width > metrics.width-COLUMN_PAD {x = metrics.width-COLUMN_PAD-width}
 	}
+	if caret >= 0 && sel_end > sel_start {
+		start_x := view_edit_offset(text, run, value, sel_start)
+		end_x := view_edit_offset(text, run, value, sel_end)
+		draw.solid(list, {x+start_x, row_bottom, end_x-start_x, tree.row_height}, COLOR_SELECTION_INK, edge_softness = 0)
+	}
 	top := metrics.height-metrics.bar_height
 	text_top := top+(tree.row_height-(run.metrics.ascent+run.metrics.descent))/2
 	origin := ui.Vec2{x, metrics.height-(text_top+run.metrics.ascent)}
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
+	if caret >= 0 {
+		draw.solid(list, {x+view_edit_offset(text, run, value, caret), row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
+	}
 }
 
 view_draw_actions :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
@@ -382,10 +400,10 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 	defer draw.pop_clip(list)
 	switch state.input_mode {
 	case .Cd:
-		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false)
+		view_bar_text(text, list, state.input, tree, metrics, COLOR_TEXT, false, state.input_caret, state.input_sel_start, state.input_sel_end)
 	case .Search:
 		if len(state.input) == 0 {
-			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false)
+			view_bar_text(text, list, "/", tree, metrics, COLOR_SEARCH, false, 1)
 			break
 		}
 		if state.search_committed {
@@ -395,7 +413,7 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 		}
 		total := 0
 		if tree.active >= 0 && tree.active < len(tree.columns) {total = search_match_count(&tree.columns[tree.active], state.input)}
-		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true)
+		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true, 1+state.input_caret, 1+state.input_sel_start, 1+state.input_sel_end)
 	case .None:
 		if len(state.notice) > 0 {
 			view_bar_text(text, list, state.notice, tree, metrics, state.notice_error ? COLOR_ERROR : COLOR_DIM, false)

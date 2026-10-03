@@ -107,14 +107,6 @@ cd_common_prefix :: proc(names: []string) -> int {
 	return length
 }
 
-cd_set_input :: proc(host: ^Host, text: string) -> bool {
-	if len(text) > INPUT_MAX {return false}
-	copy(host.input[:len(text)], text)
-	host.input_len = len(text)
-	host.history_index = -1
-	return true
-}
-
 // cd_complete is Tab in the cd field. Zoxide memory wins: the first Tab fills in
 // the best match's folder name and the next one jumps there. Without a memory
 // match it completes against the active column's folders: the shared prefix is
@@ -127,7 +119,7 @@ cd_complete :: proc(host: ^Host) {
 		name := filepath.base(matches[0])
 		if text != name {
 			host.cd_completing = false
-			_ = cd_set_input(host, name)
+			input_set(host, name)
 			return
 		}
 		if cd_enter(host, matches[0]) {
@@ -157,13 +149,13 @@ cd_complete :: proc(host: ^Host) {
 			}
 			return
 		}
-		_ = cd_set_input(host, entry.name)
+		input_set(host, entry.name)
 		_ = tree_select(&host.tree, host.tree.active, rows[0], enter = false)
 		return
 	}
 	shared := cd_common_prefix(names[:])
 	if shared > len(text) {
-		_ = cd_set_input(host, names[0][:shared])
+		input_set(host, names[0][:shared])
 		_ = tree_select(&host.tree, host.tree.active, rows[0], enter = false)
 		return
 	}
