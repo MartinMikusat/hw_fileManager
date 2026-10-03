@@ -58,5 +58,9 @@ fi
 APP="$BUILD/file_manager-$MODE.app"
 mkdir -p "$APP/Contents/Resources/licenses"
 cp "$ROOT/fonts/OFL.md" "$APP/Contents/Resources/licenses/Iosevka-OFL.md"
+cp "$ROOT/assets/app-icon/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+PLIST="$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$PLIST" 2>/dev/null ||
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$PLIST"
 # The resource copy invalidates the signature the packaging step applied in release.
 if [ "$MODE" = "release" ]; then codesign --force --sign - "$APP"; fi
