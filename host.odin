@@ -315,7 +315,7 @@ host_open_settings_menu :: proc "c" (self: NS.id, cmd: NS.SEL, sender: NS.id) {
 	context = runtime.default_context()
 	window := host_key_window()
 	if window == nil {return}
-	host_open_settings(window)
+	settings_panel_open(window)
 }
 
 host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
@@ -899,49 +899,33 @@ host_update_hover :: proc(window: ^Window, point: ui.Vec2) {
 		row_height = window.tree.row_height,
 		bar_height = 2*window.tree.row_height,
 	}
+	hover := overlay_hover(window, metrics, point)
 	control := -1
 	settings_button := false
-	settings_hot := Settings_Hot.None
 	sort_button := false
-	sort_row := -1
-	safe_button := -1
 	action := window.hot_action
 	action_hot := false
-	gather_row := -1
-	gather_clear := false
-	if window.settings_open {
-		settings_hot, _ = view_settings_hot(view_settings_layout(&window.tree, metrics, window.settings_tab), point)
-	} else if window.sort_open {
-		sort_row, _ = view_sort_menu_at(view_sort_menu_layout(&window.tree, metrics), point)
-	} else {
-		if len(window.gather_paths) > 0 {
-			layout := gather_panel_layout(metrics, len(window.gather_paths))
-			row, clear, _ := gather_panel_at(layout, point)
-			if clear {gather_clear = true} else if row >= 0 {gather_row = row}
-		}
+	if !hover.modal {
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
 		if !settings_button {sort_button = view_sort_control_at(point, &window.tree, metrics)}
-		if app.safe_mode {
-			if index, inside := safe_panel_at(safe_panel_layout(metrics), point); inside {safe_button = index}
-		}
 		gathered := len(window.gather_paths) > 0
 		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(window), window.shift_down); inside && action_available(&window.tree, gathered, len(app.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
 	}
-	if control == window.hot_control && settings_button == window.hot_settings_button && settings_hot == window.hot_settings_hot && sort_button == window.hot_sort_button && sort_row == window.hot_sort_row && safe_button == window.hot_safe_button && action == window.hot_action && action_hot == window.hot_action_hot && gather_row == window.gather_hot_row && gather_clear == window.gather_hot_clear {return}
+	if control == window.hot_control && settings_button == window.hot_settings_button && hover.settings_hot == window.hot_settings_hot && sort_button == window.hot_sort_button && hover.sort_row == window.hot_sort_row && hover.safe_button == window.hot_safe_button && action == window.hot_action && action_hot == window.hot_action_hot && hover.gather_row == window.gather_hot_row && hover.gather_clear == window.gather_hot_clear {return}
 	window.hot_control = control
 	window.hot_settings_button = settings_button
-	window.hot_settings_hot = settings_hot
+	window.hot_settings_hot = hover.settings_hot
 	window.hot_sort_button = sort_button
-	window.hot_sort_row = sort_row
-	window.hot_safe_button = safe_button
+	window.hot_sort_row = hover.sort_row
+	window.hot_safe_button = hover.safe_button
 	window.hot_action = action
 	window.hot_action_hot = action_hot
-	window.gather_hot_row = gather_row
-	window.gather_hot_clear = gather_clear
+	window.gather_hot_row = hover.gather_row
+	window.gather_hot_clear = hover.gather_clear
 	host_request_frames(window, 1)
 }
 
@@ -984,215 +968,6 @@ host_settings_view :: proc(window: ^Window) -> Settings {
 
 host_terminal :: proc() -> string {
 	return terminal_effective(app.settings.terminal, app.terminals)
-}
-
-// Font and line settings are app-wide, so every open window's text context and
-// tree are updated together.
-host_apply_font :: proc() {
-	for window in app.windows {
-		font_apply(&window.text, &font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight)
-	}
-	host_save_settings()
-	for window in app.windows {host_request_frames(window, 2)}
-}
-
-// host_settings_font_family switches the interface font, keeping the weight when
-// the new family has it.
-host_settings_font_family :: proc(family: string) {
-	delete(app.settings.font_family)
-	app.settings.font_family = strings.clone(family)
-	host_apply_font()
-}
-
-host_settings_font_weight :: proc(style: string) {
-	delete(app.settings.font_weight)
-	app.settings.font_weight = strings.clone(style)
-	host_apply_font()
-}
-
-host_settings_font_width :: proc(width: string) {
-	delete(app.settings.font_width)
-	app.settings.font_width = strings.clone(width)
-	host_apply_font()
-}
-
-host_settings_line_height :: proc(delta: int) {
-	current := settings_line_percent(app.settings)
-	app.settings.line_height = settings_line_height_clamped(current+delta)
-	for window in app.windows {tree_set_line_ratio(&window.tree, settings_line_ratio(app.settings))}
-	host_apply_font()
-}
-
-host_settings_letter_spacing :: proc(delta: int) {
-	app.settings.letter_spacing = settings_letter_spacing_clamped(app.settings.letter_spacing+delta)
-	text_tracking = f32(app.settings.letter_spacing)/10
-	host_apply_font()
-}
-
-// host_open_settings refreshes the command-line-tool state each time the modal opens.
-host_open_settings :: proc(window: ^Window) {
-	window.settings_open = true
-	app.cli_installed = cli_installed()
-	app.cli_confirm = false
-	host_request_frames(window, 2)
-}
-
-host_close_settings :: proc(window: ^Window) {
-	window.settings_open = false
-	app.cli_confirm = false
-	host_request_frames(window, 1)
-}
-
-// host_safe_reset restores default settings and clears the crash counter, so a
-// bad setting that crashes the app is left behind.
-host_safe_reset :: proc(window: ^Window) {
-	delete(app.settings.place)
-	delete(app.settings.terminal)
-	delete(app.settings.editor)
-	delete(app.settings.syntax_theme)
-	delete(app.settings.font_family)
-	delete(app.settings.font_weight)
-	delete(app.settings.font_width)
-	app.settings = settings_defaults()
-	diag.safe_clear(diagnostics_config().app_name)
-	app.safe_mode = false
-	update_start()
-	host_apply_font()
-	notice_set(window, "settings reset to defaults")
-}
-
-// host_diagnostics_copy puts the redacted report on the clipboard for pasting
-// into an email or a GitHub issue.
-host_diagnostics_copy :: proc(window: ^Window) {
-	text := diag.report_build(diagnostics_config(), context.allocator)
-	defer delete(text, context.allocator)
-	if diag.copy_to_clipboard(text) {
-		notice_set(window, "diagnostics copied to the clipboard")
-	} else {
-		notice_set(window, "could not copy diagnostics")
-	}
-	host_request_frames(window, 2)
-}
-
-// host_diagnostics_export writes the report next to the user and reveals it.
-host_diagnostics_export :: proc(window: ^Window) {
-	path := diag.report_default_path(diagnostics_config(), context.allocator)
-	defer delete(path, context.allocator)
-	if diag.report_write_file(diagnostics_config(), path) {
-		diag.reveal_path(path)
-		notice_set(window, "diagnostics written to the Desktop")
-	} else {
-		notice_set(window, "could not write diagnostics")
-	}
-	host_request_frames(window, 2)
-}
-
-// host_cli_action installs the shim, or arms then performs its removal.
-host_cli_action :: proc(window: ^Window) {
-	if !app.cli_installed {
-		if cli_install() {
-			app.cli_installed = true
-			notice_set(window, "command line tool installed as hfm")
-		} else {
-			notice_set(window, "could not install the command line tool")
-		}
-	} else if !app.cli_confirm {
-		app.cli_confirm = true
-	} else {
-		if cli_remove() {
-			app.cli_installed = false
-			notice_set(window, "command line tool removed")
-		} else {
-			notice_set(window, "could not remove the command line tool")
-		}
-		app.cli_confirm = false
-	}
-	host_request_frames(window, 2)
-}
-
-// host_settings_show_tab switches the modal's page, dropping any open field.
-host_settings_show_tab :: proc(window: ^Window, tab: Settings_Tab) {
-	if window.input_mode == .OpenWith || window.input_mode == .FontFamily {
-		input_reset(window)
-		window.notice_len = 0
-	}
-	window.settings_tab = tab
-	host_request_frames(window, 2)
-}
-
-// host_font_family_commit stores the typed family when it is an installed
-// monospaced one; otherwise the field stays open and the modal shows why.
-host_font_family_commit :: proc(window: ^Window) {
-	name := strings.trim_space(window.input_value)
-	if len(name) == 0 {
-		host_settings_font_family("")
-	} else if family, ok := font_family_known(&font_catalog, name); ok {
-		host_settings_font_family(family)
-	} else {
-		notice_set(window, "no such monospaced font")
-		return
-	}
-	input_reset(window)
-	window.notice_len = 0
-}
-
-host_settings_syntax :: proc(direction: int) {
-	next := syntax_theme_step(app.settings.syntax_theme, direction)
-	delete(app.settings.syntax_theme)
-	app.settings.syntax_theme = strings.clone(next)
-	host_save_settings()
-	for window in app.windows {host_request_frames(window, 2)}
-}
-
-host_settings_editor :: proc(direction: int) {
-	next := editor_step(app.settings.editor, app.editors, direction)
-	host_save_editor(next)
-}
-
-host_save_editor :: proc(name: string) {
-	delete(app.settings.editor)
-	app.settings.editor = strings.clone(name)
-	host_save_settings()
-	for window in app.windows {host_request_frames(window, 2)}
-}
-
-// host_open_with_commit stores the typed app when it exists; otherwise the field
-// stays open and the modal shows why.
-host_open_with_commit :: proc(window: ^Window) {
-	name := strings.trim_space(window.input_value)
-	if len(name) == 0 {
-		host_save_editor("")
-	} else if editor_valid(name) {
-		host_save_editor(name)
-	} else {
-		notice_set(window, "no such app")
-		return
-	}
-	input_reset(window)
-	window.notice_len = 0
-}
-
-host_settings_animations :: proc() {
-	app.settings.animations_off = !app.settings.animations_off
-	host_save_settings()
-	for window in app.windows {host_request_frames(window, 2)}
-}
-
-host_settings_terminal :: proc(direction: int) {
-	next, ok := terminal_step(app.settings.terminal, app.terminals, direction)
-	if !ok {return}
-	delete(app.settings.terminal)
-	app.settings.terminal = strings.clone(next)
-	host_save_settings()
-	for window in app.windows {host_request_frames(window, 2)}
-}
-
-host_settings_adjust :: proc(delta: int) {
-	next := settings_font_size_clamped(app.settings.font_size+delta)
-	if next == app.settings.font_size {return}
-	app.settings.font_size = next
-	for window in app.windows {_ = tree_set_font_size(&window.tree, f32(next))}
-	host_apply_font()
 }
 
 // host_sort_set re-reads every column in the new order; tree_refresh keeps the
@@ -1286,110 +1061,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		host_request_frames(window, 2)
 		return
 	}
-	if window.sort_open {
-		layout := view_sort_menu_layout(&window.tree, metrics)
-		if row, inside := view_sort_menu_at(layout, point); inside {
-			if row >= 0 {host_sort_set(sort_options[row])}
-			window.sort_open = false
-			host_request_frames(window, 2)
-			return
-		}
-		window.sort_open = false
-		host_request_frames(window, 1)
-		if view_sort_control_at(point, &window.tree, metrics) {return}
-	}
-	if window.settings_open {
-		hot, inside := view_settings_hot(view_settings_layout(&window.tree, metrics, window.settings_tab), point)
-		field_kept := (window.input_mode == .OpenWith && hot == .EditorCustom) || (window.input_mode == .FontFamily && hot == .FontCustom)
-		if (window.input_mode == .OpenWith || window.input_mode == .FontFamily) && !field_kept {
-			input_reset(window)
-			window.notice_len = 0
-		}
-		if !inside {
-			host_close_settings(window)
-		} else if hot == .CliAction {
-			host_cli_action(window)
-		} else if hot == .CliCancel {
-			app.cli_confirm = false
-			host_request_frames(window, 2)
-		} else if hot == .DiagCopy {
-			host_diagnostics_copy(window)
-		} else if hot == .DiagExport {
-			host_diagnostics_export(window)
-		} else if hot == .Minus {
-			host_settings_adjust(-1)
-		} else if hot == .Plus {
-			host_settings_adjust(1)
-		} else if hot == .Previous {
-			host_settings_terminal(-1)
-		} else if hot == .Next {
-			host_settings_terminal(1)
-		} else if hot == .Animations {
-			host_settings_animations()
-		} else if hot == .EditorPrevious {
-			host_settings_editor(-1)
-		} else if hot == .EditorNext {
-			host_settings_editor(1)
-		} else if hot == .FontPrevious {
-			host_settings_font_family(font_family_step(&font_catalog, app.settings.font_family, -1))
-		} else if hot == .FontNext {
-			host_settings_font_family(font_family_step(&font_catalog, app.settings.font_family, 1))
-		} else if hot == .WeightPrevious || hot == .WeightNext {
-			if len(app.settings.font_family) > 0 {
-				step := hot == .WeightNext ? 1 : -1
-				host_settings_font_weight(font_weight_step(&font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight, step))
-			}
-		} else if hot == .WidthPrevious || hot == .WidthNext {
-			if len(app.settings.font_family) > 0 {
-				host_settings_font_width(font_width_step(&font_catalog, app.settings.font_family, app.settings.font_width, hot == .WidthNext ? 1 : -1))
-			}
-		} else if hot == .LineMinus || hot == .LinePlus {
-			host_settings_line_height(hot == .LinePlus ? 5 : -5)
-		} else if hot == .SpacingMinus || hot == .SpacingPlus {
-			host_settings_letter_spacing(hot == .SpacingPlus ? 2 : -2)
-		} else if hot == .TabGeneral || hot == .TabFont {
-			host_settings_show_tab(window, hot == .TabFont ? .Font : .General)
-		} else if hot == .FontCustom && window.input_mode != .FontFamily {
-			input_begin(window, .FontFamily)
-			input_set(window, app.settings.font_family)
-			window.notice_len = 0
-			host_request_frames(window, 2)
-		} else if hot == .SyntaxPrevious {
-			host_settings_syntax(-1)
-		} else if hot == .SyntaxNext {
-			host_settings_syntax(1)
-		} else if hot == .EditorCustom && window.input_mode != .OpenWith {
-			input_begin(window, .OpenWith)
-			input_set(window, app.settings.editor)
-			window.notice_len = 0
-			host_request_frames(window, 2)
-		}
-		return
-	}
-	if app.safe_mode {
-		if index, inside := safe_panel_at(safe_panel_layout(metrics), point); inside {
-			switch index {
-			case 0: host_diagnostics_copy(window)
-			case 1: host_diagnostics_export(window)
-			case 2: host_safe_reset(window)
-			}
-			return
-		}
-	}
-	if len(window.gather_paths) > 0 {
-		layout := gather_panel_layout(metrics, len(window.gather_paths))
-		if row, clear, inside := gather_panel_at(layout, point); inside {
-			if clear {
-				gather_clear(&window.gather_paths)
-			} else if row >= 0 {
-				gather_remove(&window.gather_paths, window.gather_paths[row])
-			}
-			window.gather_hot_row = -1
-			window.gather_hot_clear = false
-			host_request_frames(window, 2)
-			return
-		}
-	}
+	if overlay_click(window, metrics, point) {return}
 	if control := view_control_at(point, metrics); control >= 0 {
 		host_apply_control(window, control)
 		return
@@ -1400,7 +1072,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if view_settings_control_at(point, metrics) {
-		host_open_settings(window)
+		settings_panel_open(window)
 		return
 	}
 	if point.y < CHROME_HEIGHT {
@@ -1494,47 +1166,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		host_new_window(window)
 		return
 	}
-	if window.sort_open {
-		switch {
-		case command && key == 13:
-			window.ns_window->close()
-		case command && key == 12:
-			app.application->terminate(nil)
-		case key == 53:
-			window.sort_open = false
-			host_request_frames(window, 1)
-		}
-		return
-	}
-	if window.settings_open && (window.input_mode == .OpenWith || window.input_mode == .FontFamily) {
-		switch {
-		case command && (key == 13 || key == 12):
-			if key == 13 {window.ns_window->close()} else {app.application->terminate(nil)}
-		case key == 36, key == 76:
-			if window.input_mode == .FontFamily {host_font_family_commit(window)} else {host_open_with_commit(window)}
-		case key == 53:
-			input_reset(window)
-			window.notice_len = 0
-		case:
-			_ = input_handle_key(window, event, key, command, option, control, shift)
-		}
-		host_request_frames(window, 2)
-		return
-	}
-	if window.settings_open {
-		switch {
-		case command && key == 13:
-			window.ns_window->close()
-		case command && key == 12:
-			app.application->terminate(nil)
-		case key == 48:
-			host_settings_show_tab(window, window.settings_tab == .General ? .Font : .General)
-		case key == 53, command && key == 43:
-			input_reset(window)
-			host_close_settings(window)
-		}
-		return
-	}
+	if overlay_key(window, event, key, command, option, control, shift) {return}
 	if window.edit_mode != .None && command && (key == 13 || key == 12) {
 		if key == 13 {window.ns_window->close()} else {app.application->terminate(nil)}
 		return
@@ -1578,7 +1210,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	case command && key == 43:
 		window.sort_open = false
-		host_open_settings(window)
+		settings_panel_open(window)
 		return
 	case command && key == 15:
 		_ = tree_refresh(&window.tree)
@@ -1600,8 +1232,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	case key == 36, key == 76:
 		switch window.input_mode {
 		case .Cd:     cd_run(window)
-		case .OpenWith: host_open_with_commit(window)
-		case .FontFamily: host_font_family_commit(window)
+		case .OpenWith: settings_panel_open_with_commit(window)
+		case .FontFamily: settings_panel_font_family_commit(window)
 		case .Search:
 			if window.search_committed {search_next(window, 1)} else {window.search_committed = true; text_input.collapse_selection(&window.text_state, window.input_value, len(window.input_value)); search_commit(window)}
 		case .None:   host_enter(window)
