@@ -245,6 +245,8 @@ action_paste :: proc(host: ^Window) {
 	stage := app.clip_cut ? "move" : "copy"
 	failures := 0
 	index := 0
+	pasted := 0
+	pasted_name := ""
 	for index < len(app.clip_paths) {
 		source := app.clip_paths[index]
 		file_id := filepath.base(source)
@@ -291,6 +293,8 @@ action_paste :: proc(host: ^Window) {
 			continue
 		}
 		devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage, scope = filepath.base(directory)})
+		pasted += 1
+		pasted_name = strings.clone(filepath.base(destination), context.temp_allocator)
 		if app.clip_cut {
 			gather_remove(&host.gather_paths, source)
 			action_clip_drop(host, index)
@@ -304,6 +308,8 @@ action_paste :: proc(host: ^Window) {
 		action_clear_clip(host)
 	}
 	_ = tree_refresh(&host.tree)
+	// A lone pasted item takes the selection, copy or move, gathered or not.
+	if pasted == 1 {_ = tree_select_name(&host.tree, host.tree.active, pasted_name)}
 }
 
 // action_destroy removes the gathered set, moving it to the Trash or deleting it
