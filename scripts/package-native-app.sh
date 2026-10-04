@@ -46,6 +46,7 @@ if [ ! -x "$BINARY" ]; then
   exit 1
 fi
 
+rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS"
 EXECUTABLE_NEW="$EXECUTABLE.new"
 PLIST_NEW="$PLIST.new"
@@ -85,38 +86,6 @@ if [ ! -f "$PLIST" ] || ! cmp -s "$PLIST_NEW" "$PLIST"; then
 else
   rm -f "$PLIST_NEW"
 fi
-
-# A nested diagnostics helper: the same binary, told apart by its bundle id, so a
-# user can double-click it when the app itself will not start. codesign --deep in
-# the release tool signs it and notarization covers it.
-HELPER="$CONTENTS/Helpers/hw_fileManager Diagnostics.app"
-mkdir -p "$HELPER/Contents/MacOS"
-cp "$EXECUTABLE" "$HELPER/Contents/MacOS/$NAME"
-chmod 755 "$HELPER/Contents/MacOS/$NAME"
-cat > "$HELPER/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleIdentifier</key>
-	<string>$EFFECTIVE_BUNDLE_ID.diagnostics</string>
-	<key>CFBundleName</key>
-	<string>hw_fileManager Diagnostics</string>
-	<key>CFBundleDisplayName</key>
-	<string>hw_fileManager Diagnostics</string>
-	<key>CFBundleExecutable</key>
-	<string>$NAME</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
-	<key>LSUIElement</key>
-	<true/>
-</dict>
-</plist>
-PLIST
 
 if [ "$MODE" = "release" ]; then
   codesign --force --sign - "$APP"

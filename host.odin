@@ -17,6 +17,7 @@ import draw "ui_framework:draw"
 import macos "ui_framework:macos"
 import metal "ui_framework:metal"
 import ui "ui_framework:core"
+import diag "diagnostics:."
 
 WINDOW_WIDTH :: NS.Float(1100)
 WINDOW_HEIGHT :: NS.Float(720)
@@ -189,9 +190,9 @@ host_fatal_alert :: proc() {
 	_ = intrinsics.objc_send(^NS.Object, alert, "addButtonWithTitle:", edit_nsstring("Copy details"))
 	_ = intrinsics.objc_send(^NS.Object, alert, "addButtonWithTitle:", edit_nsstring("Quit"))
 	if intrinsics.objc_send(i64, alert, "runModal") == 1000 {
-		text := report_build(report_directory(context.temp_allocator), context.allocator)
+		text := diag.report_build(diagnostics_config(), context.allocator)
 		defer delete(text, context.allocator)
-		_ = report_copy_to_clipboard(text)
+		_ = diag.copy_to_clipboard(text)
 	}
 	intrinsics.objc_send(nil, alert, "release")
 }
@@ -360,7 +361,7 @@ app_initialize :: proc() -> bool {
 
 	app.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &app.settings)
-	app.safe_mode = safe_update_count() >= SAFE_MODE_CRASHES
+	app.safe_mode = diag.safe_update_count(diagnostics_config().app_name) >= diag.SAFE_MODE_CRASHES
 	text_tracking = f32(app.settings.letter_spacing)/10
 
 	app.device = MTL.CreateSystemDefaultDevice()
@@ -954,32 +955,18 @@ host_safe_reset :: proc(window: ^Window) {
 	delete(app.settings.font_weight)
 	delete(app.settings.font_width)
 	app.settings = settings_defaults()
-	safe_clear()
+	diag.safe_clear(diagnostics_config().app_name)
 	app.safe_mode = false
 	host_apply_font()
 	notice_set(window, "settings reset to defaults")
 }
 
-host_reveal_path :: proc(path: string) {
-	_, stdout, stderr, _ := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "-R", path}}, context.allocator)
-	delete(stdout)
-	delete(stderr)
-}
-
-// host_running_as_helper reports whether this process is the nested diagnostics
-// helper app, which writes and reveals the report instead of opening a window.
-host_running_as_helper :: proc() -> bool {
-	bundle := NS.Bundle_mainBundle()
-	if bundle == nil {return false}
-	return strings.has_suffix(NS.String_odinString(NS.Bundle_bundleIdentifier(bundle)), ".diagnostics")
-}
-
 // host_diagnostics_copy puts the redacted report on the clipboard for pasting
 // into an email or a GitHub issue.
 host_diagnostics_copy :: proc(window: ^Window) {
-	text := report_build(report_directory(context.temp_allocator), context.allocator)
+	text := diag.report_build(diagnostics_config(), context.allocator)
 	defer delete(text, context.allocator)
-	if report_copy_to_clipboard(text) {
+	if diag.copy_to_clipboard(text) {
 		notice_set(window, "diagnostics copied to the clipboard")
 	} else {
 		notice_set(window, "could not copy diagnostics")
@@ -989,10 +976,10 @@ host_diagnostics_copy :: proc(window: ^Window) {
 
 // host_diagnostics_export writes the report next to the user and reveals it.
 host_diagnostics_export :: proc(window: ^Window) {
-	path := report_default_path(context.allocator)
+	path := diag.report_default_path(diagnostics_config(), context.allocator)
 	defer delete(path, context.allocator)
-	if report_write_file(path) {
-		host_reveal_path(path)
+	if diag.report_write_file(diagnostics_config(), path) {
+		diag.reveal_path(path)
 		notice_set(window, "diagnostics written to the Desktop")
 	} else {
 		notice_set(window, "could not write diagnostics")

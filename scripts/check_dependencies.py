@@ -8,7 +8,7 @@ import subprocess
 import sys
 from urllib.parse import unquote, urlsplit
 
-COLLECTIONS = ("hw_odin_devlog", "hw_odin_ui_framework", "hw_odin_ui_components", "hw_odin_native_update")
+COLLECTIONS = ("hw_odin_devlog", "hw_odin_ui_framework", "hw_odin_ui_components", "hw_odin_native_update", "hw_odin_diagnostics")
 REQUIRED = set(COLLECTIONS)
 
 

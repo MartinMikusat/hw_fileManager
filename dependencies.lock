@@ -20,6 +20,12 @@
       "revision": "678179ea44b0ae06fc15f8a4744a01648ff4f11f"
     },
     {
+      "name": "hw_odin_diagnostics",
+      "path": "../odin_libraries/hw_odin_diagnostics",
+      "url": "https://github.com/MartinMikusat/hw_odin_diagnostics.git",
+      "revision": "7e64f876237f965bfa86d5a2b2be30134bd0338f"
+    },
+    {
       "name": "hw_odin_native_update",
       "path": "../odin_libraries/hw_odin_native_update",
       "url": "https://github.com/MartinMikusat/hw_odin_native_update.git",

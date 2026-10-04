@@ -3,6 +3,7 @@ package file_manager
 import "core:fmt"
 import "core:os"
 import devlog "devlog:."
+import diag "diagnostics:."
 
 app_exit :: proc(status: int) {
 	devlog.global_destroy()
@@ -13,13 +14,7 @@ main :: proc() {
 	// Handled before the journal opens: the crash marker must survive so the next
 	// real launch still knows the app crashed.
 	if len(os.args) > 1 && os.args[1] == "--diagnostics" {
-		if !run_diagnostics(os.args[2:]) {os.exit(2)}
-		os.exit(0)
-	}
-	// The nested diagnostics helper is this same binary; it collects and reveals
-	// the report instead of opening a window.
-	if host_running_as_helper() {
-		if !run_diagnostics([]string{"--reveal"}) {os.exit(2)}
+		if !diag.run_diagnostics(diagnostics_config(), os.args[2:]) {os.exit(2)}
 		os.exit(0)
 	}
 	config := devlog.DEFAULT_CONFIG

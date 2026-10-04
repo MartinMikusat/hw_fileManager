@@ -27,11 +27,12 @@ kind. Source lives at the repository root (`package file_manager`).
   `file_manager --offscreen <path.ppm> [--path=DIR] [--select=NAME] [--gather=NAME] [--font-size=N] [--settings] [--shift] [--sort-menu] [--safe]` for
   headless structural checks
   instead of launching the app.
-- User-facing diagnostics: `file_manager --diagnostics` writes a redacted report to the
-  Desktop (`--out=PATH`, `--stdout`, `--reveal`), without opening the journal so the crash
-  marker survives. The app's Settings > Diagnostics row copies or exports the same report,
-  and a nested `Contents/Helpers/hw_fileManager Diagnostics.app` runs it for a user whose app
-  will not start. `report.odin` builds it, `safe.odin` gates safe mode after two crashed launches.
+- User-facing diagnostics come from the shared `hw_odin_diagnostics` library (`report.odin`
+  here only holds this app's `Config`). `file_manager --diagnostics` writes a redacted report
+  to the Desktop (`--out=PATH`, `--stdout`, `--reveal`) without opening the journal, so the
+  crash marker survives; the Settings > Diagnostics row copies or exports the same report; and
+  the standalone `hw_diagnostics` app collects it for any of our apps, including one that
+  will not start. Safe mode after two crashed launches is `safe_update_count` in that library.
 - Releases and updates: `python3 scripts/release_macos.py build <version> --notary-profile <profile>`
   signs, notarizes and packages `dist.noindex/<version>`; `publish dist.noindex/<version>` creates the GitHub
   release. Installed release apps check `releases/latest/download/update.json` hourly and swap
