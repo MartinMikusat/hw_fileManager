@@ -1245,6 +1245,11 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	shift := .Shift in event->modifierFlags()
 	window.shift_down = shift
 	key := uint(event->keyCode())
+	// Cmd+N is app-level, so it works with a modal or the sort menu open too.
+	if command && key == 45 {
+		host_new_window(window)
+		return
+	}
 	if window.sort_open {
 		switch {
 		case command && key == 13:
@@ -1331,9 +1336,6 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		window.sort_open = false
 		host_open_settings(window)
 		return
-	case command && key == 45:
-		host_new_window(window)
-		return
 	case command && key == 15:
 		_ = tree_refresh(&window.tree)
 	case key == 51:
@@ -1390,7 +1392,7 @@ host_new_window :: proc(source: ^Window) -> ^Window {
 	window := window_create(start, ephemeral = true)
 	if window != nil && source != nil && source.ns_window != nil {
 		frame := source.ns_window->frame()
-		window.ns_window->setFrameOrigin({frame.origin.x+24, frame.origin.y-24})
+		window.ns_window->setFrameOrigin({frame.origin.x+32, frame.origin.y-32})
 	}
 	return window
 }

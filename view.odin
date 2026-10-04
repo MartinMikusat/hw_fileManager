@@ -141,6 +141,7 @@ Settings_Layout :: struct {
 	controls:  [SETTINGS_CONTROLS_MAX]Settings_Control,
 	count:     int,
 	hint_top:  f32,
+	cli_hint_top: f32,
 }
 
 
@@ -442,7 +443,8 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 		layout.tops[.Editor] = first+2*row
 		layout.tops[.Syntax] = first+3*row
 		layout.tops[.CommandLine] = first+4*row
-		layout.hint_top = first+5*row
+		layout.cli_hint_top = first+5*row
+		layout.hint_top = first+6*row
 		stepper(&layout, layout.tops[.Terminal], right, button, ch, row, .Previous, .Next, {PREVIOUS_LABEL, NEXT_LABEL}, .Terminal)
 		add(&layout, {right-5*ch, layout.tops[.Animations], 5*ch, row}, .Animations, "", .Animations)
 		stepper(&layout, layout.tops[.Editor], right, button, ch, row, .EditorPrevious, .EditorNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Editor)
@@ -920,7 +922,7 @@ view_draw_settings :: proc(
 		return false
 	}
 
-	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax}
+	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax, .CommandLine}
 	for row in rows_shown {
 		// The label yields to the row's controls.
 		limit := layout.panel.x+layout.panel.w
@@ -965,6 +967,9 @@ view_draw_settings :: proc(
 		hint := state.input_mode == .FontFamily ? "enter saves · esc cancels · empty = built-in font" : "enter saves · esc cancels · empty = system default"
 		view_draw_text(text, list, hint, left, layout.hint_top, row_height, size, COLOR_DIM, metrics.height)
 	case:
+		if state.settings_tab == .General {
+			view_draw_text(text, list, "Adds hfm to open folders from a terminal.", left, layout.cli_hint_top, row_height, size, COLOR_DIM, metrics.height, layout.panel.w-4*metrics.char_advance)
+		}
 		view_draw_text(text, list, "⌘, opens · tab switches · esc closes", left, layout.hint_top, row_height, size, COLOR_DIM, metrics.height)
 	}
 }
