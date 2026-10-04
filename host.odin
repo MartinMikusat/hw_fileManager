@@ -966,6 +966,14 @@ host_reveal_path :: proc(path: string) {
 	delete(stderr)
 }
 
+// host_running_as_helper reports whether this process is the nested diagnostics
+// helper app, which writes and reveals the report instead of opening a window.
+host_running_as_helper :: proc() -> bool {
+	bundle := NS.Bundle_mainBundle()
+	if bundle == nil {return false}
+	return strings.has_suffix(NS.String_odinString(NS.Bundle_bundleIdentifier(bundle)), ".diagnostics")
+}
+
 // host_diagnostics_copy puts the redacted report on the clipboard for pasting
 // into an email or a GitHub issue.
 host_diagnostics_copy :: proc(window: ^Window) {

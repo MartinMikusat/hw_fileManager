@@ -16,6 +16,12 @@ main :: proc() {
 		if !run_diagnostics(os.args[2:]) {os.exit(2)}
 		os.exit(0)
 	}
+	// The nested diagnostics helper is this same binary; it collects and reveals
+	// the report instead of opening a window.
+	if host_running_as_helper() {
+		if !run_diagnostics([]string{"--reveal"}) {os.exit(2)}
+		os.exit(0)
+	}
 	config := devlog.DEFAULT_CONFIG
 	config.profile = devlog.profile_from_env()
 	if devlog.global_start(devlog.default_directory("hw_fileManager", "app", context.temp_allocator), config) {

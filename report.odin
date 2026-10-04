@@ -141,15 +141,23 @@ report_copy_to_clipboard :: proc(text: string) -> bool {
 	return bool(intrinsics.objc_send(NS.BOOL, pasteboard, "setString:forType:", edit_nsstring(text), edit_nsstring("public.utf8-plain-text")))
 }
 
+report_reveal_path :: proc(path: string) {
+	_, stdout, stderr, _ := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "-R", path}}, context.allocator)
+	delete(stdout)
+	delete(stderr)
+}
+
 // run_diagnostics is the headless path: it touches no AppKit or Metal, so it
 // still works when the window cannot start. It writes a file by default.
 run_diagnostics :: proc(arguments: []string) -> bool {
 	out := ""
 	to_stdout := false
+	reveal := false
 	for argument in arguments {
 		switch {
 		case strings.has_prefix(argument, "--out="): out = strings.trim_prefix(argument, "--out=")
 		case argument == "--stdout": to_stdout = true
+		case argument == "--reveal": reveal = true
 		}
 	}
 	text := report_build(report_directory(context.temp_allocator), context.allocator)
@@ -163,6 +171,7 @@ run_diagnostics :: proc(arguments: []string) -> bool {
 		fmt.eprintln("[hw_fileManager] could not write the diagnostics file")
 		return false
 	}
+	if reveal {report_reveal_path(out)}
 	fmt.printf("wrote %s\n", out)
 	return true
 }
