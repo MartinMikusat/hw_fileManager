@@ -189,6 +189,41 @@ host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.
 	watch_mark()
 }
 
+// host_window_title is the path a window is looking at, shown in its chrome and
+// in the Dock menu.
+host_window_title :: proc(window: ^Window) -> string {
+	if entry, ok := tree_selected_entry(&window.tree); ok {return entry.path}
+	if window.tree.active >= 0 && window.tree.active < len(window.tree.columns) {return window.tree.columns[window.tree.active].dir}
+	return tree_root_directory(&window.tree)
+}
+
+// applicationDockMenu: fills the Dock icon's right-click menu with one item per
+// open window, like Cursor and VS Code, so a window can be raised without
+// Mission Control.
+host_dock_menu :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.Application) -> ^NS.Menu {
+	context = runtime.default_context()
+	menu := NS.Menu_initWithTitle(NS.Menu_alloc(), edit_nsstring("Windows"))
+	selector := NS.sel_registerName("fileManagerFocusWindow:")
+	for window, index in app.windows {
+		item := NS.MenuItem_initWithTitle(NS.MenuItem_alloc(), edit_nsstring(host_window_title(window)), selector, edit_nsstring(""))
+		NS.MenuItem_setTarget(item, (^NS.Object)(self))
+		NS.MenuItem_setTag(item, NS.Integer(index))
+		NS.Menu_addItem(menu, item)
+		NS.autorelease(cast(^NS.Object)item)
+	}
+	NS.autorelease(cast(^NS.Object)menu)
+	return menu
+}
+
+host_focus_window_menu :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.MenuItem) {
+	context = runtime.default_context()
+	index := int(NS.MenuItem_tag(sender))
+	if index < 0 || index >= len(app.windows) {return}
+	target := app.windows[index]
+	target.ns_window->makeKeyAndOrderFront(nil)
+	app.application->activateIgnoringOtherApps(true)
+}
+
 // The default window is created one run-loop turn after launch, so an open-file
 // event from `hfm` (which arrives during launch) wins and we do not open both.
 host_did_finish_launching :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
@@ -231,6 +266,8 @@ host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bo
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerUpdateReady:", rawptr(host_update_ready), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationDockMenu:", rawptr(host_dock_menu), "@@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerFocusWindow:", rawptr(host_focus_window_menu), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationDidBecomeActive:", rawptr(host_did_become_active), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationDidFinishLaunching:", rawptr(host_did_finish_launching), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "application:openFiles:", rawptr(host_open_files), "v@:@@") {return nil, nil, false}
