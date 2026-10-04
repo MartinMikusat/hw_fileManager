@@ -119,6 +119,7 @@ app: App
 
 register_mono_font :: proc(text: ^coretext.Context) {
 	assert(font_register(), "embedded Iosevka must register; no silent substitute")
+	assert(font_resolves(), "FONT_NAME must resolve to the embedded face; a wrong PostScript name falls back silently")
 	coretext.register_font(text, FONT_MONO, FONT_NAME)
 }
 
