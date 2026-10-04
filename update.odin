@@ -92,7 +92,7 @@ update_worker :: proc(_: ^thread.Thread) {
 			// The window is idle between events, so wake it to show the notice.
 			pool := NS.scoped_autoreleasepool()
 			_ = pool
-			intrinsics.objc_send(nil, host.delegate, "performSelectorOnMainThread:withObject:waitUntilDone:", NS.sel_registerName("fileManagerUpdateReady:"), NS.id(nil), NS.BOOL(false))
+			intrinsics.objc_send(nil, app.delegate, "performSelectorOnMainThread:withObject:waitUntilDone:", NS.sel_registerName("fileManagerUpdateReady:"), NS.id(nil), NS.BOOL(false))
 			return
 		case .Error:
 			devlog.failed(devlog.global(), site, {reason = prepared.error, severity = .Warning})

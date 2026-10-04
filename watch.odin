@@ -57,18 +57,20 @@ Watcher :: struct {
 
 watcher: Watcher
 
-// watch_signature hashes the folders worth watching: every column, the sibling
-// listings around it and the trail shown beside a selected file.
-watch_signature :: proc(tree: ^Tree) -> u64 {
+// watch_signature hashes the folders worth watching across every window: each
+// column, the sibling listings around it and the trail beside a selected file.
+watch_signature :: proc() -> u64 {
 	hash := u64(14695981039346656037)
 	mix :: proc(hash: ^u64, text: string) {
 		for byte in transmute([]u8)text {hash^ = (hash^ ~ u64(byte))*1099511628211}
 		hash^ = (hash^ ~ 0xFF)*1099511628211
 	}
-	for &column in tree.columns {
-		mix(&hash, column.dir)
-		for blocks in ([3][]Block{column.above[:], column.below[:], view_trail_shown(&column) ? column.trail[:] : nil}) {
-			for block in blocks {mix(&hash, view_block_key(block))}
+	for window in app.windows {
+		for &column in window.tree.columns {
+			mix(&hash, column.dir)
+			for blocks in ([3][]Block{column.above[:], column.below[:], view_trail_shown(&column) ? column.trail[:] : nil}) {
+				for block in blocks {mix(&hash, view_block_key(block))}
+			}
 		}
 	}
 	return hash
@@ -91,12 +93,14 @@ watch_add :: proc(dirs: ^map[string]struct{}, path: string) {
 	dirs[real] = {}
 }
 
-watch_collect :: proc(tree: ^Tree, dirs: ^map[string]struct{}) {
-	for &column in tree.columns {
-		watch_add(dirs, column.dir)
-		for blocks in ([3][]Block{column.above[:], column.below[:], view_trail_shown(&column) ? column.trail[:] : nil}) {
-			for block in blocks {
-				if key := view_block_key(block); len(key) > 0 {watch_add(dirs, key)}
+watch_collect :: proc(dirs: ^map[string]struct{}) {
+	for window in app.windows {
+		for &column in window.tree.columns {
+			watch_add(dirs, column.dir)
+			for blocks in ([3][]Block{column.above[:], column.below[:], view_trail_shown(&column) ? column.trail[:] : nil}) {
+				for block in blocks {
+					if key := view_block_key(block); len(key) > 0 {watch_add(dirs, key)}
+				}
 			}
 		}
 	}
@@ -122,7 +126,7 @@ watch_callback :: proc "c" (stream: rawptr, info: rawptr, count: uint, paths: [^
 		_, inside := watcher.dirs[filepath.dir(path)]
 		if direct || inside {
 			intrinsics.atomic_store(&watcher.dirty, true)
-			host_request_frames(2)
+			host_request_all_frames(2)
 			break
 		}
 	}
@@ -130,10 +134,10 @@ watch_callback :: proc "c" (stream: rawptr, info: rawptr, count: uint, paths: [^
 }
 
 // watch_restart replaces the stream with one over the folders now on screen.
-watch_restart :: proc(tree: ^Tree) {
+watch_restart :: proc() {
 	watch_stop()
 	watcher.dirs = make(map[string]struct{})
-	watch_collect(tree, &watcher.dirs)
+	watch_collect(&watcher.dirs)
 	if len(watcher.dirs) == 0 {return}
 	values := make([dynamic]rawptr, 0, len(watcher.dirs), context.temp_allocator)
 	for path in watcher.dirs {
@@ -154,22 +158,22 @@ watch_restart :: proc(tree: ^Tree) {
 	watcher.restarted = time.tick_now()
 }
 
-// watch_follow keeps the stream matched to the tree; it restarts at most a few times
-// a second while the selection is moving.
-watch_follow :: proc(tree: ^Tree) {
-	signature := watch_signature(tree)
+// watch_follow keeps the stream matched to the trees of every window; it restarts
+// at most a few times a second while the selection is moving.
+watch_follow :: proc() {
+	signature := watch_signature()
 	if signature == watcher.signature && watcher.stream != nil {return}
 	if watcher.stream != nil && time.tick_since(watcher.restarted) < WATCH_RESTART_MIN {
-		host_request_frames(1)
+		host_request_all_frames(1)
 		return
 	}
 	watcher.signature = signature
-	watch_restart(tree)
+	watch_restart()
 }
 
 // watch_refresh_due re-reads the tree once the watcher saw a change, unless a name
 // is being edited (the rows would move under the field).
-watch_refresh_due :: proc(host: ^Host) {
+watch_refresh_due :: proc(host: ^Window) {
 	if !intrinsics.atomic_load(&watcher.dirty) || host.edit_mode != .None {return}
 	intrinsics.atomic_store(&watcher.dirty, false)
 	_ = tree_refresh(&host.tree)
@@ -178,5 +182,5 @@ watch_refresh_due :: proc(host: ^Host) {
 // watch_mark asks for a refresh on the next frame, e.g. when the app is activated.
 watch_mark :: proc() {
 	intrinsics.atomic_store(&watcher.dirty, true)
-	host_request_frames(2)
+	host_request_all_frames(2)
 }

@@ -3,11 +3,11 @@ package file_manager
 import "core:strings"
 import "core:testing"
 
-append_query :: proc(host: ^Host, value: string) {
+append_query :: proc(host: ^Window, value: string) {
 	input_set(host, value)
 }
 
-search_layout :: proc(host: ^Host) {
+search_layout :: proc(host: ^Window) {
 	host.view_width = 1000
 	host.view_height = 700
 	metrics := View_Metrics{width = 1000, height = 700, char_advance = 8, row_height = host.tree.row_height, bar_height = 2*host.tree.row_height}
@@ -19,7 +19,7 @@ search_commit_jumps_to_the_first_match :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	start := strings.concatenate({TREE_FIXTURE_ROOT, "/alpha"}, context.temp_allocator)
@@ -38,7 +38,7 @@ search_commit_jumps_to_the_first_match :: proc(t: ^testing.T) {
 
 @(test)
 input_history_walks_submitted_queries :: proc(t: ^testing.T) {
-	host: Host
+	host: Window
 	defer input_destroy(&host)
 	append_query(&host, "alpha")
 	input_history_push(&host)
@@ -60,7 +60,7 @@ search_jumps_into_a_listed_sibling_folder :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer input_destroy(&host)
@@ -80,7 +80,7 @@ search_jump_into_the_leftmost_column_keeps_its_parent_visible :: proc(t: ^testin
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer input_destroy(&host)

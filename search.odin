@@ -110,14 +110,14 @@ search_progress :: proc(tree: ^Tree, query: string, view_top, view_bottom: f32) 
 	return current, total
 }
 
-search_begin :: proc(host: ^Host) {
+search_begin :: proc(host: ^Window) {
 	input_begin(host, .Search)
 }
 
 // search_jump selects an on-screen row, entering the sibling folder it is listed
 // under when it is not in a column of its own, and keeps its parent column
 // visible when the row lands in the leftmost one.
-search_jump :: proc(host: ^Host, item: Search_Item) {
+search_jump :: proc(host: ^Window, item: Search_Item) {
 	search_select(&host.tree, item)
 	if host.tree.active == 0 {_ = tree_prepend(&host.tree)}
 }
@@ -139,7 +139,7 @@ search_select :: proc(tree: ^Tree, item: Search_Item) {
 
 // search_step moves to the next (direction 1) or previous (-1) match on screen,
 // wrapping around; inclusive also accepts the selected row itself.
-search_step :: proc(host: ^Host, direction: int, inclusive: bool) {
+search_step :: proc(host: ^Window, direction: int, inclusive: bool) {
 	query := input_text(host)
 	if len(query) == 0 {return}
 	view_top, view_bottom := host_search_bounds(host)
@@ -164,14 +164,14 @@ search_step :: proc(host: ^Host, direction: int, inclusive: bool) {
 // search_commit jumps to the first match from the selection once the query is
 // confirmed; while it is being typed the matches only highlight, as in vim
 // without incsearch.
-search_commit :: proc(host: ^Host) {
+search_commit :: proc(host: ^Window) {
 	search_step(host, 1, true)
 }
 
-search_refresh :: proc(host: ^Host) {
+search_refresh :: proc(host: ^Window) {
 	search_step(host, 1, true)
 }
 
-search_next :: proc(host: ^Host, delta: int) {
+search_next :: proc(host: ^Window, delta: int) {
 	search_step(host, delta, false)
 }

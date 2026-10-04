@@ -49,7 +49,7 @@ action_copy_of_the_gathered_set_fills_the_clipboard :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer gather_destroy(&host.gather_paths)
@@ -58,7 +58,7 @@ action_copy_of_the_gathered_set_fills_the_clipboard :: proc(t: ^testing.T) {
 	gather_add(&host.gather_paths, action_fixture_path("top.txt"))
 	gather_add(&host.gather_paths, action_fixture_path("alpha", "one.txt"))
 	action_clip(&host, false)
-	testing.expect_value(t, len(host.clip_paths), 2)
+	testing.expect_value(t, len(app.clip_paths), 2)
 }
 
 @(test)
@@ -66,7 +66,7 @@ edit_new_folder_mode_creates_a_directory :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer edit_cancel(&host)
@@ -84,7 +84,7 @@ action_delete_removes_gathered_paths_permanently :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer gather_destroy(&host.gather_paths)

@@ -131,14 +131,14 @@ action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather,
 	return .Copy, false
 }
 
-action_current_gathered :: proc(host: ^Host) -> bool {
+action_current_gathered :: proc(host: ^Window) -> bool {
 	entry, ok := tree_selected_entry(&host.tree)
 	return ok && path_list_contains(host.gather_paths[:], entry.path)
 }
 
-action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
+action_perform :: proc(host: ^Window, kind: Action_Kind, shift := false) {
 	gathered := len(host.gather_paths) > 0
-	if !action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {return}
+	if !action_available(&host.tree, gathered, len(app.clip_paths) > 0, kind) {return}
 	switch kind {
 	case .Copy:    action_clip(host, false)
 	case .Cut:     action_clip(host, true)
@@ -152,18 +152,18 @@ action_perform :: proc(host: ^Host, kind: Action_Kind, shift := false) {
 	case .Refresh: _ = tree_refresh(&host.tree)
 	case .Open:    action_open(host)
 	}
-	host_request_frames(2)
+	host_request_frames(host, 2)
 }
 
 // action_open opens the selected file in its default app, or in the editor chosen
 // in settings when it is a text file. Enter does this for everything except text
 // files, which it previews; this is their way in.
-action_open :: proc(host: ^Host) {
+action_open :: proc(host: ^Window) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok || entry.is_dir {return}
 	command := []string{"/usr/bin/open", "--", entry.path}
-	if host.preview.kind == .Text && len(host.settings.editor) > 0 {
-		command = []string{"/usr/bin/open", "-a", host.settings.editor, "--", entry.path}
+	if host.preview.kind == .Text && len(app.settings.editor) > 0 {
+		command = []string{"/usr/bin/open", "-a", app.settings.editor, "--", entry.path}
 	}
 	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = command}, context.allocator)
 	defer delete(stdout, context.allocator)
@@ -178,7 +178,7 @@ action_open :: proc(host: ^Host) {
 }
 
 // action_terminal opens the configured terminal in the focused column's folder.
-action_terminal :: proc(host: ^Host) {
+action_terminal :: proc(host: ^Window) {
 	directory, ok := action_paste_directory(&host.tree)
 	if !ok {return}
 	state, stdout, stderr, err := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "-a", host_terminal(), directory}}, context.allocator)
@@ -195,7 +195,7 @@ action_terminal :: proc(host: ^Host) {
 
 // action_gather marks or unmarks the highlighted entry, leaving the selection
 // where it is.
-action_gather :: proc(host: ^Host) {
+action_gather :: proc(host: ^Window) {
 	entry, ok := tree_selected_entry(&host.tree)
 	if !ok {return}
 	if path_list_contains(host.gather_paths[:], entry.path) {
@@ -207,38 +207,38 @@ action_gather :: proc(host: ^Host) {
 
 // action_clip marks the gathered set when there is one, otherwise the
 // highlighted entry. Cut is a pending move drawn red; Copy is silent.
-action_clip :: proc(host: ^Host, cut: bool) {
+action_clip :: proc(host: ^Window, cut: bool) {
 	action_clear_clip(host)
 	if len(host.gather_paths) > 0 {
-		for path in host.gather_paths {append(&host.clip_paths, strings.clone(path, context.allocator))}
+		for path in host.gather_paths {append(&app.clip_paths, strings.clone(path, context.allocator))}
 	} else {
 		entry, ok := tree_selected_entry(&host.tree)
 		if !ok {return}
-		append(&host.clip_paths, strings.clone(entry.path, context.allocator))
+		append(&app.clip_paths, strings.clone(entry.path, context.allocator))
 	}
-	host.clip_cut = cut
+	app.clip_cut = cut
 	devlog.succeeded(
 		devlog.global(),
 		{feature = "files", operation = "clip"},
-		{file_id = filepath.base(host.clip_paths[len(host.clip_paths)-1]), stage = cut ? "cut" : "copy"},
+		{file_id = filepath.base(app.clip_paths[len(app.clip_paths)-1]), stage = cut ? "cut" : "copy"},
 	)
 }
 
-action_clip_drop :: proc(host: ^Host, index: int) {
-	delete(host.clip_paths[index], context.allocator)
-	ordered_remove(&host.clip_paths, index)
+action_clip_drop :: proc(host: ^Window, index: int) {
+	delete(app.clip_paths[index], context.allocator)
+	ordered_remove(&app.clip_paths, index)
 }
 
-action_paste :: proc(host: ^Host) {
-	if len(host.clip_paths) == 0 {return}
+action_paste :: proc(host: ^Window) {
+	if len(app.clip_paths) == 0 {return}
 	directory, has_target := action_paste_directory(&host.tree)
 	if !has_target {return}
 	site := devlog.Site{feature = "files", operation = "paste"}
-	stage := host.clip_cut ? "move" : "copy"
+	stage := app.clip_cut ? "move" : "copy"
 	failures := 0
 	index := 0
-	for index < len(host.clip_paths) {
-		source := host.clip_paths[index]
+	for index < len(app.clip_paths) {
+		source := app.clip_paths[index]
 		file_id := filepath.base(source)
 		if directory == source || strings.has_prefix(directory, strings.concatenate({source, "/"}, context.temp_allocator)) {
 			devlog.failed(devlog.global(), site, {reason = "folder cannot be pasted into itself", severity = .Info}, {file_id = file_id, stage = stage})
@@ -246,7 +246,7 @@ action_paste :: proc(host: ^Host) {
 			index += 1
 			continue
 		}
-		if host.clip_cut && filepath.dir(source) == directory {
+		if app.clip_cut && filepath.dir(source) == directory {
 			gather_remove(&host.gather_paths, source)
 			action_clip_drop(host, index)
 			continue
@@ -254,7 +254,7 @@ action_paste :: proc(host: ^Host) {
 		plain, _ := filepath.join([]string{directory, file_id}, context.temp_allocator)
 		destination := plain
 		if path_taken(plain) {
-			if host.clip_cut {
+			if app.clip_cut {
 				devlog.failed(devlog.global(), site, {reason = "destination name already exists", severity = .Info}, {file_id = file_id, stage = stage})
 				failures += 1
 				index += 1
@@ -266,14 +266,14 @@ action_paste :: proc(host: ^Host) {
 		}
 		devlog.started(devlog.global(), site, {file_id = file_id, stage = stage})
 		paste_code: i32
-		if host.clip_cut {
+		if app.clip_cut {
 			paste_code = action_move(source, destination)
 		} else {
 			paste_code = copy_item(source, destination)
 		}
 		if paste_code != 0 {
 			devlog.failed(devlog.global(), site, {
-				reason = host.clip_cut ? "file could not be moved" : "file could not be copied",
+				reason = app.clip_cut ? "file could not be moved" : "file could not be copied",
 				detail = filepath.base(directory),
 				code = paste_code,
 				severity = .Warning,
@@ -283,7 +283,7 @@ action_paste :: proc(host: ^Host) {
 			continue
 		}
 		devlog.succeeded(devlog.global(), site, {file_id = file_id, stage = stage, scope = filepath.base(directory)})
-		if host.clip_cut {
+		if app.clip_cut {
 			gather_remove(&host.gather_paths, source)
 			action_clip_drop(host, index)
 			continue
@@ -291,8 +291,8 @@ action_paste :: proc(host: ^Host) {
 		index += 1
 	}
 	if failures > 0 {
-		notice_set(host, host.clip_cut ? "some items could not be moved" : "some items could not be copied")
-	} else if host.clip_cut {
+		notice_set(host, app.clip_cut ? "some items could not be moved" : "some items could not be copied")
+	} else if app.clip_cut {
 		action_clear_clip(host)
 	}
 	_ = tree_refresh(&host.tree)
@@ -301,11 +301,11 @@ action_paste :: proc(host: ^Host) {
 // action_destroy removes the gathered set, moving it to the Trash or deleting it
 // for good. Items that go leave the set; failures stay so a second press
 // retries only those.
-action_trash :: proc(host: ^Host) {action_destroy(host, to_trash = true)}
+action_trash :: proc(host: ^Window) {action_destroy(host, to_trash = true)}
 
-action_delete :: proc(host: ^Host) {action_destroy(host, to_trash = false)}
+action_delete :: proc(host: ^Window) {action_destroy(host, to_trash = false)}
 
-action_destroy :: proc(host: ^Host, to_trash: bool) {
+action_destroy :: proc(host: ^Window, to_trash: bool) {
 	_ = gather_prune(&host.gather_paths)
 	if len(host.gather_paths) == 0 {return}
 	site := devlog.Site{feature = "files", operation = to_trash ? "trash" : "delete"}
@@ -350,15 +350,15 @@ action_unique_destination :: proc(directory, name: string) -> string {
 	}
 }
 
-action_clear_clip :: proc(host: ^Host) {
-	for path in host.clip_paths {delete(path, context.allocator)}
-	delete(host.clip_paths)
-	host.clip_paths = nil
+action_clear_clip :: proc(host: ^Window) {
+	for path in app.clip_paths {delete(path, context.allocator)}
+	delete(app.clip_paths)
+	app.clip_paths = nil
 }
 
-action_clip_prune :: proc(host: ^Host) {
-	for index := len(host.clip_paths)-1; index >= 0; index -= 1 {
-		if !path_taken(host.clip_paths[index]) {action_clip_drop(host, index)}
+action_clip_prune :: proc(host: ^Window) {
+	for index := len(app.clip_paths)-1; index >= 0; index -= 1 {
+		if !path_taken(app.clip_paths[index]) {action_clip_drop(host, index)}
 	}
 }
 

@@ -19,7 +19,7 @@ action_cut_then_paste_moves_the_file :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -27,7 +27,7 @@ action_cut_then_paste_moves_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, tree_move(&host.tree, 1))
 
 	action_clip(&host, true)
-	testing.expect(t, len(host.clip_paths) == 1 && strings.has_suffix(host.clip_paths[0], "/alpha/one.txt"))
+	testing.expect(t, len(app.clip_paths) == 1 && strings.has_suffix(app.clip_paths[0], "/alpha/one.txt"))
 
 	testing.expect(t, tree_select_name(&host.tree, 0, "beta"))
 	testing.expect(t, tree_expand(&host.tree))
@@ -41,7 +41,7 @@ action_paste_targets_the_focused_column :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -60,7 +60,7 @@ action_paste_refuses_a_folder_inside_itself :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -79,7 +79,7 @@ action_copy_then_paste_duplicates_the_file :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -99,7 +99,7 @@ action_copy_paste_twice_renames_the_duplicate :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -121,7 +121,7 @@ edit_rename_and_new_file_apply_names :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	testing.expect(t, tree_open(&host.tree, action_fixture_path("alpha")))
@@ -145,7 +145,7 @@ action_copy_pastes_a_folder_tree :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer action_clear_clip(&host)
@@ -165,7 +165,7 @@ edit_renames_only_the_case :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer edit_cancel(&host)
@@ -185,7 +185,7 @@ edit_refuses_an_existing_name :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer edit_cancel(&host)
@@ -207,7 +207,7 @@ rename_repro :: proc(t: ^testing.T) {
 	handle, _ := os.create(action_fixture_path("hello there.txt"))
 	os.close(handle)
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer edit_cancel(&host)
@@ -242,7 +242,7 @@ rename_after_typing_applies :: proc(t: ^testing.T) {
 	handle, _ := os.create(action_fixture_path("hello there.txt"))
 	os.close(handle)
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer edit_cancel(&host)

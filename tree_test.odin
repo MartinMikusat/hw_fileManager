@@ -175,7 +175,7 @@ tree_refresh_drops_the_column_of_a_deleted_directory :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
-	host: Host
+	host: Window
 	tree_init(&host.tree)
 	defer tree_destroy(&host.tree)
 	defer gather_destroy(&host.gather_paths)

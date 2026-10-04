@@ -67,24 +67,24 @@ cd_remember :: proc(zoxide, path: string) {
 }
 
 // cd_enter reopens the cascade at path and remembers it.
-cd_enter :: proc(host: ^Host, path: string) -> bool {
+cd_enter :: proc(host: ^Window, path: string) -> bool {
 	if !tree_open(&host.tree, path, grandparent = true) {return false}
-	cd_remember(host.zoxide, path)
+	cd_remember(app.zoxide, path)
 	return true
 }
 
 // cd_run resolves the typed query and reopens the cascade at the match.
-cd_run :: proc(host: ^Host) {
+cd_run :: proc(host: ^Window) {
 	input_history_push(host)
 	query := input_text(host)
 	if len(query) > 0 {
-		if path, ok := cd_lookup(host.zoxide, query, context.allocator); ok {
+		if path, ok := cd_lookup(app.zoxide, query, context.allocator); ok {
 			defer delete(path, context.allocator)
 			_ = cd_enter(host, path)
 		}
 	}
 	input_reset(host)
-	host_request_frames(2)
+	host_request_frames(host, 2)
 }
 
 name_has_prefix_fold :: proc(name, prefix: string) -> bool {
@@ -112,10 +112,10 @@ cd_common_prefix :: proc(names: []string) -> int {
 // match it completes against the active column's folders: the shared prefix is
 // filled in and the selection moves to the candidates, which stay highlighted;
 // a lone candidate completes, then a further Tab jumps into it.
-cd_complete :: proc(host: ^Host) {
+cd_complete :: proc(host: ^Window) {
 	text := input_text(host)
 	if len(text) == 0 {return}
-	if matches := cd_matches(host.zoxide, text); len(matches) > 0 {
+	if matches := cd_matches(app.zoxide, text); len(matches) > 0 {
 		name := filepath.base(matches[0])
 		if text != name {
 			host.cd_completing = false

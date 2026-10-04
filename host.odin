@@ -29,13 +29,33 @@ CONTROL_MINIMIZE :: 0
 CONTROL_ZOOM :: 1
 CONTROL_CLOSE :: 2
 
-Host :: struct {
-	app:            ^NS.Application,
+// App holds what every window shares: the process, the Metal device, settings,
+// the app-wide clipboard and the detected helper apps. Window holds everything
+// one window owns, including its own Metal layer and text context.
+App :: struct {
+	application:    ^NS.Application,
 	delegate:       ^NS.Object,
-	window:         ^NS.Window,
-	view:           ^NS.View,
+	delegate_class: NS.Class,
+	view_class:     NS.Class,
 	device:         ^MTL.Device,
 	queue:          ^MTL.CommandQueue,
+	settings:       Settings,
+	zoxide:         string,
+	terminals:      Terminals,
+	editors:        Editors,
+	clip_paths:     [dynamic]string,
+	clip_cut:       bool,
+	cli_installed:  bool,
+	cli_confirm:    bool,
+	windows:        [dynamic]^Window,
+	// Closed windows wait here until it is safe to free them, off their own callback.
+	doomed:         [dynamic]^Window,
+}
+
+Window :: struct {
+	delegate:       ^NS.Object,
+	ns_window:      ^NS.Window,
+	view:           ^NS.View,
 	layer:          ^QC.MetalLayer,
 	display_link:   macos.Display_Link,
 	text:           coretext.Context,
@@ -51,10 +71,8 @@ Host :: struct {
 	hot_sort_button:     bool,
 	hot_sort_row:        int,
 	sort_open:      bool,
-	settings:       Settings,
 	settings_open:  bool,
 	settings_tab:   Settings_Tab,
-	zoxide:         string,
 	input_value:    string,
 	input_mode:     Input_Mode,
 	search_committed: bool,
@@ -65,8 +83,6 @@ Host :: struct {
 	cd_completing:  bool,
 	place_pending:  string,
 	place_since:    time.Tick,
-	clip_paths:      [dynamic]string,
-	clip_cut:        bool,
 	gather_paths:    [dynamic]string,
 	gather_hot_row:  int,
 	gather_hot_clear: bool,
@@ -84,16 +100,17 @@ Host :: struct {
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	shift_down:     bool,
-	terminals:      Terminals,
-	editors:        Editors,
 	frames_pending: int,
 	wheel_rows:     f32,
 	frame_tick:     time.Tick,
 	frame_animated: bool,
 	initialized:    bool,
+	// An ephemeral window (opened by hfm or Cmd+N) never owns settings.place or
+	// the remembered frame.
+	ephemeral:      bool,
 }
 
-host: Host
+app: App
 
 register_mono_font :: proc(text: ^coretext.Context) {
 	assert(font_register(), "embedded Iosevka must register; no silent substitute")
@@ -121,6 +138,7 @@ host_window_key :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
 // A window without a title bar cannot become key by default, so the first
 // responder never receives keyboard events unless it opts in.
 host_window_class :: proc() -> NS.Class {
+	if existing := intrinsics.objc_find_class("FileManagerWindow"); existing != nil {return existing}
 	class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSWindow"), "FileManagerWindow", 0)
 	if class == nil {return nil}
 	if !host_add_method(class, "canBecomeKeyWindow", rawptr(host_window_key), "B@:") {return nil}
@@ -136,17 +154,34 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 	})
 }
 
-notice_set :: proc(host: ^Host, text: string) {
+notice_set :: proc(window: ^Window, text: string) {
 	length := min(len(text), NOTICE_MAX)
-	copy(host.notice[:length], text[:length])
-	host.notice_len = length
-	host.notice_until_ms = time.to_unix_nanoseconds(time.now())/1_000_000+3000
+	copy(window.notice[:length], text[:length])
+	window.notice_len = length
+	window.notice_until_ms = time.to_unix_nanoseconds(time.now())/1_000_000+3000
+}
+
+// window_for_view/window_for_delegate/window_for_ns_window map an AppKit object
+// back to the Window that owns it; a handful of windows makes the linear scan
+// cheaper than an associated-object table.
+window_for_view :: proc(view: NS.id) -> ^Window {
+	for window in app.windows {
+		if cast(NS.id)window.view == view {return window}
+	}
+	return nil
+}
+
+window_for_delegate :: proc(delegate: NS.id) -> ^Window {
+	for window in app.windows {
+		if cast(NS.id)window.delegate == delegate {return window}
+	}
+	return nil
 }
 
 // host_update_ready runs on the main thread when the update worker has staged a release.
 host_update_ready :: proc "c" (self: NS.id, cmd: NS.SEL, object: NS.id) {
 	context = runtime.default_context()
-	host_request_frames(2)
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
@@ -154,140 +189,288 @@ host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.
 	watch_mark()
 }
 
-host_register_classes :: proc() -> (delegate: ^NS.Object, view_class: NS.Class, ok: bool) {
-	delegate_class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "FileManagerDelegate", 0)
+// The default window is created one run-loop turn after launch, so an open-file
+// event from `hfm` (which arrives during launch) wins and we do not open both.
+host_did_finish_launching :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	intrinsics.objc_send(nil, app.delegate, "performSelector:withObject:afterDelay:", NS.sel_registerName("fileManagerCreateDefaultWindow:"), NS.id(nil), f64(0))
+}
+
+host_create_default_window :: proc "c" (self: NS.id, cmd: NS.SEL, object: NS.id) {
+	context = runtime.default_context()
+	if len(app.windows) > 0 {return}
+	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
+	_ = window_create(start, ephemeral = false)
+}
+
+// application:openFiles: delivers the paths `hfm` passed to `open -b`; each one
+// becomes an ephemeral window.
+host_open_files :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.Application, filenames: ^NS.Array) -> bool {
+	context = runtime.default_context()
+	for index in 0 ..< NS.Array_count(filenames) {
+		name := NS.Array_objectAs(filenames, NS.UInteger(index), ^NS.String)
+		_ = window_create(NS.String_odinString(name), ephemeral = true)
+	}
+	return true
+}
+
+host_open_file :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.Application, filename: NS.id) -> bool {
+	context = runtime.default_context()
+	_ = window_create(NS.String_odinString((^NS.String)(filename)), ephemeral = true)
+	return true
+}
+
+host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bool) {
+	if existing := intrinsics.objc_find_class("FileManagerDelegate"); existing != nil {
+		view_existing := intrinsics.objc_find_class("FileManagerView")
+		return existing, view_existing, view_existing != nil
+	}
+	delegate_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "FileManagerDelegate", 0)
 	if delegate_class == nil {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerFrame:", rawptr(host_on_frame), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerUpdateReady:", rawptr(host_update_ready), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationDidBecomeActive:", rawptr(host_did_become_active), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationDidFinishLaunching:", rawptr(host_did_finish_launching), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "application:openFiles:", rawptr(host_open_files), "v@:@@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "application:openFile:", rawptr(host_open_file), "B@:@@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerCreateDefaultWindow:", rawptr(host_create_default_window), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "windowWillClose:", rawptr(host_window_will_close), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	NS.objc_registerClassPair(delegate_class)
-	delegate_id := NS.class_createInstance(delegate_class, 0)
-	delegate = NS.init((^NS.Object)(delegate_id))
 
 	view_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "FileManagerView", 0)
-	if view_class == nil {return delegate, nil, false}
-	if !host_add_method(view_class, "acceptsFirstResponder", rawptr(host_accepts_first), "B@:") {return delegate, view_class, false}
-	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll_wheel), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate, view_class, false}
-	if !host_add_method(view_class, "flagsChanged:", rawptr(host_flags_changed), "v@:@") {return delegate, view_class, false}
+	if view_class == nil {return delegate_class, nil, false}
+	if !host_add_method(view_class, "acceptsFirstResponder", rawptr(host_accepts_first), "B@:") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll_wheel), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "flagsChanged:", rawptr(host_flags_changed), "v@:@") {return delegate_class, view_class, false}
 	NS.objc_registerClassPair(view_class)
-	return delegate, view_class, true
+	return delegate_class, view_class, true
 }
 
-host_initialize :: proc() -> bool {
-	coretext.context_init(&host.text)
-	draw.list_init(&host.list, pixel_ratio = 2)
-	register_mono_font(&host.text)
-	delegate, view_class, ok := host_register_classes()
+host_new_delegate :: proc() -> ^NS.Object {
+	instance := NS.class_createInstance(app.delegate_class, 0)
+	return NS.init((^NS.Object)(instance))
+}
+
+app_initialize :: proc() -> bool {
+	delegate_class, view_class, ok := host_register_classes()
 	if !ok {
 		fmt.eprintln("[hw_fileManager] could not register the Cocoa classes")
 		host_failure("Cocoa classes could not be registered", .Critical)
 		return false
 	}
-	host.delegate = delegate
-	host.app = NS.Application.sharedApplication()
-	host.app->setActivationPolicy(.Regular)
-	host.app->setDelegate((^NS.ApplicationDelegate)(delegate))
+	app.delegate_class = delegate_class
+	app.view_class = view_class
+	app.delegate = host_new_delegate()
+	app.application = NS.Application.sharedApplication()
+	app.application->setActivationPolicy(.Regular)
+	app.application->setDelegate((^NS.ApplicationDelegate)(app.delegate))
 
-	host.settings = settings_defaults()
-	_ = settings_load(settings_path(context.temp_allocator), &host.settings)
-	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
-	text_tracking = f32(host.settings.letter_spacing)/10
+	app.settings = settings_defaults()
+	_ = settings_load(settings_path(context.temp_allocator), &app.settings)
+	text_tracking = f32(app.settings.letter_spacing)/10
+
+	app.device = MTL.CreateSystemDefaultDevice()
+	if app.device == nil {
+		host_failure("Metal device is unavailable", .Critical)
+		return false
+	}
+	app.queue = app.device->newCommandQueue()
+	app.zoxide = cd_zoxide()
+	app.terminals = terminals_detect()
+	app.editors = editors_detect()
+	app.cli_installed = cli_installed()
+	update_start()
+	return true
+}
+
+// window_create builds one fully independent window. An ephemeral window never
+// reads or writes the remembered place or frame.
+window_create :: proc(start: string, ephemeral: bool) -> ^Window {
+	site := devlog.Site{feature = "window", operation = "create"}
+	kind := ephemeral ? "ephemeral" : "primary"
+	devlog.started(devlog.global(), site, {stage = kind})
+	window := new(Window)
+	window.ephemeral = ephemeral
+	coretext.context_init(&window.text)
+	draw.list_init(&window.list, pixel_ratio = 2)
+	register_mono_font(&window.text)
+	font_apply(&window.text, &font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight)
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
 	restored := false
-	if saved := host.settings.window; NS.Float(saved.w) >= WINDOW_MIN_WIDTH && NS.Float(saved.h) >= WINDOW_MIN_HEIGHT && saved.w < 10000 && saved.h < 10000 {
-		frame = {{NS.Float(saved.x), NS.Float(saved.y)}, {NS.Float(saved.w), NS.Float(saved.h)}}
-		restored = true
+	if !ephemeral {
+		if saved := app.settings.window; NS.Float(saved.w) >= WINDOW_MIN_WIDTH && NS.Float(saved.h) >= WINDOW_MIN_HEIGHT && saved.w < 10000 && saved.h < 10000 {
+			frame = {{NS.Float(saved.x), NS.Float(saved.y)}, {NS.Float(saved.w), NS.Float(saved.h)}}
+			restored = true
+		}
 	}
 	window_class := host_window_class()
 	if window_class == nil {
 		host_failure("window class could not be registered", .Critical)
-		return false
+		devlog.failed(devlog.global(), site, {reason = "window class could not be registered"})
+		window_destroy(window)
+		return nil
 	}
-	host.window = (^NS.Window)(NS.class_createInstance(window_class, 0))
-	host.window = host.window->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
-	if host.window == nil {
+	window.delegate = host_new_delegate()
+	window.ns_window = (^NS.Window)(NS.class_createInstance(window_class, 0))
+	window.ns_window = window.ns_window->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
+	window.ns_window->setReleasedWhenClosed(false)
+	if window.ns_window == nil {
 		host_failure("window could not be created", .Critical)
-		return false
+		devlog.failed(devlog.global(), site, {reason = "window could not be created"})
+		window_destroy(window)
+		return nil
 	}
-	host.window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
-	host.window->setAcceptsMouseMovedEvents(true)
-	host.window->setDelegate((^NS.WindowDelegate)(delegate))
-	if !restored {host.window->center()}
+	window.ns_window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
+	window.ns_window->setAcceptsMouseMovedEvents(true)
+	window.ns_window->setDelegate((^NS.WindowDelegate)(window.delegate))
+	if !restored {window.ns_window->center()}
 
-	host.view = (^NS.View)(NS.class_createInstance(view_class, 0))
-	host.view = host.view->initWithFrame({{0, 0}, frame.size})
-	host.window->setContentView(host.view)
+	window.view = (^NS.View)(NS.class_createInstance(app.view_class, 0))
+	window.view = window.view->initWithFrame({{0, 0}, frame.size})
+	window.ns_window->setContentView(window.view)
 
-	host.device = MTL.CreateSystemDefaultDevice()
-	if host.device == nil {
-		host_failure("Metal device is unavailable", .Critical)
-		return false
-	}
-	host.queue = host.device->newCommandQueue()
-	host.layer = QC.MetalLayer.layer()
-	host.layer->setDevice(host.device)
-	host.layer->setPixelFormat(.BGRA8Unorm)
-	host.layer->setFramebufferOnly(true)
-	host.view->setWantsLayer(true)
-	host.view->setLayer((^NS.Layer)(host.layer))
+	window.layer = QC.MetalLayer.layer()
+	window.layer->setDevice(app.device)
+	window.layer->setPixelFormat(.BGRA8Unorm)
+	window.layer->setFramebufferOnly(true)
+	window.view->setWantsLayer(true)
+	window.view->setLayer((^NS.Layer)(window.layer))
 
 	if !metal.renderer_init(
-		&host.renderer,
-		rawptr(host.device),
+		&window.renderer,
+		rawptr(app.device),
 		pixel_format = uint(MTL.PixelFormat.BGRA8Unorm),
 		metallib_data = UI_METALLIB,
 	) {
 		fmt.eprintln("[hw_fileManager] Metal renderer initialization failed")
 		host_failure("Metal renderer initialization failed", .Critical)
-		return false
+		devlog.failed(devlog.global(), site, {reason = "Metal renderer initialization failed"})
+		window_destroy(window)
+		return nil
 	}
 	if !macos.display_link_start(
-		&host.display_link,
-		rawptr(host.view),
-		rawptr(host.delegate),
+		&window.display_link,
+		rawptr(window.view),
+		rawptr(window.delegate),
 		"fileManagerFrame:",
 	) {
 		fmt.eprintln("[hw_fileManager] the macOS 14 display link API is required")
 		host_failure("the macOS 14 display link API is unavailable", .Critical)
-		return false
+		devlog.failed(devlog.global(), site, {reason = "the macOS 14 display link API is unavailable"})
+		window_destroy(window)
+		return nil
 	}
-	_ = host.window->makeFirstResponder((^NS.Responder)(host.view))
+	_ = window.ns_window->makeFirstResponder((^NS.Responder)(window.view))
 
-	tree_init(&host.tree)
-	host.tree.sort = sort_parse(host.settings.sort)
-	host.gather_hot_row = -1
-	tree_set_line_ratio(&host.tree, settings_line_ratio(host.settings))
-	tree_set_font_size(&host.tree, f32(host.settings.font_size))
-	host.zoxide = cd_zoxide()
-	host.terminals = terminals_detect()
-	host.editors = editors_detect()
-	update_start()
-	start := os.get_env("HW_FILE_MANAGER_PATH", context.temp_allocator)
+	tree_init(&window.tree)
+	window.tree.sort = sort_parse(app.settings.sort)
+	window.gather_hot_row = -1
+	tree_set_line_ratio(&window.tree, settings_line_ratio(app.settings))
+	tree_set_font_size(&window.tree, f32(app.settings.font_size))
+
+	opened := false
 	if len(start) > 0 {
-		if !tree_open(&host.tree, start, grandparent = true) && !host_open_home() {return false}
-	} else if !host_restore_place() && !host_open_home() {
-		return false
+		opened = host_open_path(window, start)
+	} else if !ephemeral {
+		opened = host_restore_place(window)
 	}
-	host.initialized = true
-	host.window->makeKeyAndOrderFront(nil)
-	host.app->activateIgnoringOtherApps(true)
-	host_request_frames(3)
-	return true
+	if !opened {opened = host_open_home(window)}
+	if !opened {
+		devlog.failed(devlog.global(), site, {reason = "starting directory could not be opened"})
+		window_destroy(window)
+		return nil
+	}
+	window.initialized = true
+	append(&app.windows, window)
+	window.ns_window->makeKeyAndOrderFront(nil)
+	app.application->activateIgnoringOtherApps(true)
+	host_request_frames(window, 3)
+	devlog.succeeded(devlog.global(), site, {stage = kind})
+	return window
 }
 
-host_open_home :: proc() -> bool {
-	if !tree_open(&host.tree, home_directory(), grandparent = true) {
-		if !tree_open(&host.tree, "/", grandparent = true) {
+// host_open_path shows a directory as the cascade root, or a file's folder with
+// the file selected.
+host_open_path :: proc(window: ^Window, path: string) -> bool {
+	info, error := os.lstat(path, context.temp_allocator)
+	if error != nil {return false}
+	is_dir := info.type == .Directory || (info.type == .Symlink && os.is_dir(path))
+	os.file_info_delete(info, context.temp_allocator)
+	if is_dir {return tree_open(&window.tree, path, grandparent = true)}
+	if !tree_open(&window.tree, filepath.dir(path), grandparent = true) {return false}
+	return tree_select_name(&window.tree, window.tree.active, filepath.base(path))
+}
+
+window_destroy :: proc(window: ^Window) {
+	window_release(window, release_ns_window = true)
+}
+
+// window_release tears a window down. A window closed by the user is released
+// later, without touching the NSWindow, because AppKit is mid-close and owns it.
+window_release :: proc(window: ^Window, release_ns_window: bool) {
+	for index in 0 ..< len(app.windows) {
+		if app.windows[index] == window {
+			ordered_remove(&app.windows, index)
+			break
+		}
+	}
+	if window.initialized {
+		gather_destroy(&window.gather_paths)
+		edit_cancel(window)
+		input_destroy(window)
+		preview_clear(&window.preview)
+		text_input.destroy(&window.text_state)
+		macos.display_link_stop(&window.display_link)
+		tree_destroy(&window.tree)
+		metal.renderer_destroy(&window.renderer)
+		draw.list_destroy(&window.list)
+		coretext.context_destroy(&window.text)
+	}
+	if window.view != nil {NS.release(window.view)}
+	if release_ns_window && window.ns_window != nil {NS.release(window.ns_window)}
+	if window.delegate != nil {NS.release(window.delegate)}
+	free(window)
+}
+
+// host_window_will_close runs on a window's own delegate, so it only detaches
+// the window; the free happens in host_reap_doomed once the callback has returned.
+host_window_will_close :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	window := window_for_delegate(self)
+	if window == nil {return}
+	if !window.ephemeral {host_capture_window_frame(window)}
+	for index in 0 ..< len(app.windows) {
+		if app.windows[index] == window {
+			ordered_remove(&app.windows, index)
+			break
+		}
+	}
+	macos.display_link_stop(&window.display_link)
+	window.initialized = false
+	append(&app.doomed, window)
+}
+
+host_reap_doomed :: proc() {
+	for len(app.doomed) > 0 {
+		window := pop(&app.doomed)
+		// Safe here: the close callback that queued this window has returned.
+		window_release(window, release_ns_window = true)
+	}
+}
+
+host_open_home :: proc(window: ^Window) -> bool {
+	if !tree_open(&window.tree, home_directory(), grandparent = true) {
+		if !tree_open(&window.tree, "/", grandparent = true) {
 			fmt.eprintln("[hw_fileManager] no readable starting directory")
 			host_failure("no readable starting directory", .Critical)
 			return false
@@ -299,202 +482,218 @@ host_open_home :: proc() -> bool {
 
 // host_restore_place reopens the last selected path; it reports false when
 // there is none or it no longer exists, so the caller starts at the usual place.
-host_restore_place :: proc() -> bool {
-	place := host.settings.place
+host_restore_place :: proc(window: ^Window) -> bool {
+	place := app.settings.place
 	if len(place) == 0 || !path_taken(place) {return false}
-	if !tree_open(&host.tree, filepath.dir(place), grandparent = true) {return false}
-	_ = tree_select_name(&host.tree, host.tree.active, filepath.base(place))
+	if !tree_open(&window.tree, filepath.dir(place), grandparent = true) {return false}
+	_ = tree_select_name(&window.tree, window.tree.active, filepath.base(place))
 	return true
 }
 
 PLACE_SETTLE :: 500*time.Millisecond
 
-host_current_place :: proc() -> string {
-	if entry, ok := tree_selected_entry(&host.tree); ok {return entry.path}
-	if host.tree.active >= 0 && host.tree.active < len(host.tree.columns) {return host.tree.columns[host.tree.active].dir}
+host_current_place :: proc(window: ^Window) -> string {
+	if entry, ok := tree_selected_entry(&window.tree); ok {return entry.path}
+	if window.tree.active >= 0 && window.tree.active < len(window.tree.columns) {return window.tree.columns[window.tree.active].dir}
 	return ""
 }
 
 // host_remember_place stores the selected path (or the active folder) so the next start
 // resumes there. The write waits until the selection has rested, so moving through names
-// does no disk work; the pending place is also written at quit.
-host_remember_place :: proc() {
-	place := host_current_place()
-	if len(place) == 0 || place == host.settings.place {
-		delete(host.place_pending)
-		host.place_pending = ""
+// does no disk work; the pending place is also written at quit. Only a non-ephemeral
+// window remembers, so hfm and Cmd+N windows never clobber it.
+host_remember_place :: proc(window: ^Window) {
+	if window.ephemeral {return}
+	place := host_current_place(window)
+	if len(place) == 0 || place == app.settings.place {
+		delete(window.place_pending)
+		window.place_pending = ""
 		return
 	}
-	if place != host.place_pending {
-		delete(host.place_pending)
-		host.place_pending = strings.clone(place)
-		host.place_since = time.tick_now()
+	if place != window.place_pending {
+		delete(window.place_pending)
+		window.place_pending = strings.clone(place)
+		window.place_since = time.tick_now()
 	}
-	if time.tick_since(host.place_since) < PLACE_SETTLE {
-		host_request_frames(1)
+	if time.tick_since(window.place_since) < PLACE_SETTLE {
+		host_request_frames(window, 1)
 		return
 	}
-	host_flush_place()
+	host_flush_place(window)
 }
 
-host_flush_place :: proc() {
-	if len(host.place_pending) == 0 {return}
-	delete(host.settings.place)
-	host.settings.place = host.place_pending
-	host.place_pending = ""
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+host_flush_place :: proc(window: ^Window) {
+	if len(window.place_pending) == 0 {return}
+	delete(app.settings.place)
+	app.settings.place = window.place_pending
+	window.place_pending = ""
+	host_save_settings()
 }
 
-host_shutdown :: proc() {
-	if !host.initialized {return}
-	action_clear_clip(&host)
-	gather_destroy(&host.gather_paths)
-	edit_cancel(&host)
-	input_destroy(&host)
-	preview_clear(&host.preview)
-	text_input.destroy(&host.text_state)
-	macos.display_link_stop(&host.display_link)
-	tree_destroy(&host.tree)
-	metal.renderer_destroy(&host.renderer)
-	draw.list_destroy(&host.list)
-	coretext.context_destroy(&host.text)
-	if host.view != nil {NS.release(host.view)}
-	if host.window != nil {NS.release(host.window)}
-	if host.delegate != nil {NS.release(host.delegate)}
-	host = {}
+host_primary_window :: proc() -> ^Window {
+	for window in app.windows {
+		if !window.ephemeral {return window}
+	}
+	if len(app.windows) > 0 {return app.windows[0]}
+	return nil
 }
 
-host_request_frames :: proc(count: int) {
-	if !host.initialized {return}
-	host.frames_pending = max(host.frames_pending, count)
-	if host.display_link.paused {macos.display_link_set_paused(&host.display_link, false)}
+// host_save_settings persists the shared settings with the primary window's frame.
+host_save_settings :: proc() {
+	if window := host_primary_window(); window != nil {host_capture_window_frame(window)}
+	_ = settings_save(settings_path(context.temp_allocator), app.settings)
 }
 
-host_search_bounds :: proc(host: ^Host) -> (view_top, view_bottom: f32) {
-	return CHROME_HEIGHT, host.view_height-2*host.tree.row_height
+app_shutdown :: proc() {
+	host_reap_doomed()
+	for len(app.windows) > 0 {window_destroy(app.windows[len(app.windows)-1])}
+	action_clear_clip(nil)
+	delete(app.windows)
+	app.windows = nil
+	delete(app.doomed)
+	app.doomed = nil
+	if app.device != nil {NS.release(app.device)}
+	if app.queue != nil {NS.release(app.queue)}
+	if app.delegate != nil {NS.release(app.delegate)}
+	app = {}
 }
 
-host_render :: proc() {
-	if host.window == nil || host.view == nil || host.layer == nil {return}
+host_request_frames :: proc(window: ^Window, count: int) {
+	if window == nil || !window.initialized {return}
+	window.frames_pending = max(window.frames_pending, count)
+	if window.display_link.paused {macos.display_link_set_paused(&window.display_link, false)}
+}
+
+host_request_all_frames :: proc(count: int) {
+	for window in app.windows {host_request_frames(window, count)}
+}
+
+host_search_bounds :: proc(window: ^Window) -> (view_top, view_bottom: f32) {
+	return CHROME_HEIGHT, window.view_height-2*window.tree.row_height
+}
+
+host_render :: proc(window: ^Window) {
+	if window.ns_window == nil || window.view == nil || window.layer == nil {return}
 	pool := NS.scoped_autoreleasepool()
 	_ = pool
-	bounds := host.view->bounds()
+	bounds := window.view->bounds()
 	width := f32(bounds.size.width)
 	height := f32(bounds.size.height)
 	if width < 1 || height < 1 {return}
-	host.view_width = width
-	host.view_height = height
-	scale := f32(host.window->backingScaleFactor())
+	window.view_width = width
+	window.view_height = height
+	scale := f32(window.ns_window->backingScaleFactor())
 	if scale < 1 {scale = 1}
-	host.layer->setContentsScale(NS.Float(scale))
-	host.layer->setDrawableSize({NS.Float(width)*NS.Float(scale), NS.Float(height)*NS.Float(scale)})
+	window.layer->setContentsScale(NS.Float(scale))
+	window.layer->setDrawableSize({NS.Float(width)*NS.Float(scale), NS.Float(height)*NS.Float(scale)})
 
-	drawable := host.layer->nextDrawable()
+	drawable := window.layer->nextDrawable()
 	if drawable == nil {return}
 	texture := drawable->texture()
-	command_buffer := host.queue->commandBuffer()
+	command_buffer := app.queue->commandBuffer()
 
-	metal.begin_texture_frame(&host.renderer)
-	coretext.begin_frame(&host.text, scale, metal.atlas_io(&host.renderer))
-	draw.list_reset(&host.list)
+	metal.begin_texture_frame(&window.renderer)
+	coretext.begin_frame(&window.text, scale, metal.atlas_io(&window.renderer))
+	draw.list_reset(&window.list)
 	metrics := View_Metrics{
 		width = width,
 		height = height,
-		char_advance = measure_char_advance(&host.text, host.tree.font_size),
-		row_height = host.tree.row_height,
-		bar_height = 2*host.tree.row_height,
+		char_advance = measure_char_advance(&window.text, window.tree.font_size),
+		row_height = window.tree.row_height,
+		bar_height = 2*window.tree.row_height,
 	}
-	host.char_advance = metrics.char_advance
+	window.char_advance = metrics.char_advance
 	now := time.now()
 	edit := View_Edit{
-		active = host.edit_mode != .None,
-		column = host.edit_column,
-		row = host.edit_row,
-		text = edit_text(&host),
+		active = window.edit_mode != .None,
+		column = window.edit_column,
+		row = window.edit_row,
+		text = edit_text(window),
 	}
 	notice := ""
 	notice_error := false
-	if host.edit_mode != .None {
-		edit.caret = host.text_state.caret_byte_offset
-		edit.selection_start, edit.selection_end = text_input.selection_bounds(&host.text_state, host.edit_value)
+	if window.edit_mode != .None {
+		edit.caret = window.text_state.caret_byte_offset
+		edit.selection_start, edit.selection_end = text_input.selection_bounds(&window.text_state, window.edit_value)
 		switch {
-		case edit_conflict(&host):
+		case edit_conflict(window):
 			edit.error = true
 			notice = "an item with that name already exists"
 			notice_error = true
-		case len(host.edit_value) > 0 && edit_invalid(host.edit_value):
+		case len(window.edit_value) > 0 && edit_invalid(window.edit_value):
 			edit.error = true
 			notice = "invalid name"
 			notice_error = true
 		}
 	}
-	if len(notice) == 0 && host.notice_len > 0 && time.to_unix_nanoseconds(now)/1_000_000 < host.notice_until_ms {
-		notice = string(host.notice[:host.notice_len])
+	if len(notice) == 0 && window.notice_len > 0 && time.to_unix_nanoseconds(now)/1_000_000 < window.notice_until_ms {
+		notice = string(window.notice[:window.notice_len])
 		notice_error = true
 	}
 	if len(notice) == 0 && update_ready() {notice = fmt.tprintf("update %s will install when you quit", updater.prepared.manifest.version)}
 	input_sel_start, input_sel_end := 0, 0
-	if input_editing(&host) {input_sel_start, input_sel_end = text_input.selection_bounds(&host.text_state, host.input_value)}
-	preview_update(&host.preview, &host.tree, host.device)
-	frame_dt := f32(time.duration_seconds(time.tick_since(host.frame_tick)))
-	if !host.frame_animated {frame_dt = 1.0/60}
-	host.frame_tick = time.tick_now()
-	if host.settings.animations_off {frame_dt = 0}
-	if !view_layout(&host.tree, metrics, edit, min(frame_dt, 1.0/30)) {host_request_frames(1)}
-	host.frame_animated = host.tree.pan_moving
-	if host.tree.pan_moving {host_request_frames(1)}
-	watch_follow(&host.tree)
-	host.preview_rect, host.preview_shown = view_preview_rect(&host.tree, metrics)
-	host.preview_shown = host.preview_shown && host.preview.kind != .None
-	if !preview_text_shown(&host) {host.preview.focused = false}
-	preview_scroll_to(&host, host.preview.scroll)
-	preview_view := preview_view_make(&host.preview, &host.renderer, scale, syntax_theme(syntax_theme_index(host.settings.syntax_theme)))
-	preview_view.focused = host.preview.focused
-	view_draw(&host.tree, &host.list, &host.text, metrics, View_State{
-		settings = host_settings_view(),
-		settings_open = host.settings_open,
-		sort_open = host.sort_open,
-		settings_tab = host.settings_tab,
+	if input_editing(window) {input_sel_start, input_sel_end = text_input.selection_bounds(&window.text_state, window.input_value)}
+	preview_update(&window.preview, &window.tree, app.device)
+	frame_dt := f32(time.duration_seconds(time.tick_since(window.frame_tick)))
+	if !window.frame_animated {frame_dt = 1.0/60}
+	window.frame_tick = time.tick_now()
+	if app.settings.animations_off {frame_dt = 0}
+	if !view_layout(&window.tree, metrics, edit, min(frame_dt, 1.0/30)) {host_request_frames(window, 1)}
+	window.frame_animated = window.tree.pan_moving
+	if window.tree.pan_moving {host_request_frames(window, 1)}
+	watch_follow()
+	window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics)
+	window.preview_shown = window.preview_shown && window.preview.kind != .None
+	if !preview_text_shown(window) {window.preview.focused = false}
+	preview_scroll_to(window, window.preview.scroll)
+	preview_view := preview_view_make(&window.preview, &window.renderer, scale, syntax_theme(syntax_theme_index(app.settings.syntax_theme)))
+	preview_view.focused = window.preview.focused
+	view_draw(&window.tree, &window.list, &window.text, metrics, View_State{
+		settings = host_settings_view(window),
+		settings_open = window.settings_open,
+		sort_open = window.sort_open,
+		settings_tab = window.settings_tab,
 		width_locked = host_width_locked(),
 		hot = {
-			control = host.hot_control,
-			settings_button = host.hot_settings_button,
-			settings_hot = host.hot_settings_hot,
-			sort_button = host.hot_sort_button,
-			sort_row = host.hot_sort_row,
-			action = host.hot_action,
-			action_hot = host.hot_action_hot,
+			control = window.hot_control,
+			settings_button = window.hot_settings_button,
+			settings_hot = window.hot_settings_hot,
+			sort_button = window.hot_sort_button,
+			sort_row = window.hot_sort_row,
+			action = window.hot_action,
+			action_hot = window.hot_action_hot,
 		},
-		input_mode = host.input_mode,
-		input = input_text(&host),
-		input_editing = input_editing(&host),
-		input_caret = host.text_state.caret_byte_offset,
+		input_mode = window.input_mode,
+		input = input_text(window),
+		input_editing = input_editing(window),
+		input_caret = window.text_state.caret_byte_offset,
 		input_sel_start = input_sel_start,
 		input_sel_end = input_sel_end,
-		search_committed = host.search_committed,
-		cd_completing = host.cd_completing,
+		search_committed = window.search_committed,
+		cd_completing = window.cd_completing,
 		preview = preview_view,
-		preview_rect = host.preview_rect,
-		preview_shown = host.preview_shown,
-		clip_paths = host.clip_paths[:],
-		clip_cut = host.clip_cut,
-		gathered = len(host.gather_paths) > 0,
-		current_gathered = action_current_gathered(&host),
-		gather_paths = host.gather_paths[:],
-		gather_hot_row = host.gather_hot_row,
-		gather_hot_clear = host.gather_hot_clear,
+		preview_rect = window.preview_rect,
+		preview_shown = window.preview_shown,
+		clip_paths = app.clip_paths[:],
+		clip_cut = app.clip_cut,
+		gathered = len(window.gather_paths) > 0,
+		current_gathered = action_current_gathered(window),
+		gather_paths = window.gather_paths[:],
+		gather_hot_row = window.gather_hot_row,
+		gather_hot_clear = window.gather_hot_clear,
 		edit = edit,
 		notice = notice,
 		notice_error = notice_error,
-		shift = host.shift_down,
+		shift = window.shift_down,
+		cli_installed = app.cli_installed,
+		cli_confirm = app.cli_confirm,
 	})
-	coretext.flush(&host.text)
+	coretext.flush(&window.text)
 	if !metal.encode_to_drawable(
-		&host.renderer,
+		&window.renderer,
 		rawptr(command_buffer),
 		rawptr(texture),
-		&host.list,
+		&window.list,
 		{width, height},
 		scale,
 		COLOR_BACKGROUND,
@@ -509,331 +708,380 @@ host_render :: proc() {
 	command_buffer->commit()
 }
 
-host_pointer_from_event :: proc(event: ^NS.Event) -> ui.Vec2 {
-	point := host.view->convertPointFromView(event->locationInWindow(), nil)
-	return {f32(point.x), host.view_height-f32(point.y)}
+host_pointer_from_event :: proc(window: ^Window, event: ^NS.Event) -> ui.Vec2 {
+	point := window.view->convertPointFromView(event->locationInWindow(), nil)
+	return {f32(point.x), window.view_height-f32(point.y)}
 }
 
-host_update_hover :: proc(point: ui.Vec2) {
-	if host.view_width < 1 || host.view_height < 1 {return}
+host_update_hover :: proc(window: ^Window, point: ui.Vec2) {
+	if window.view_width < 1 || window.view_height < 1 {return}
 	metrics := View_Metrics{
-		width = host.view_width,
-		height = host.view_height,
-		char_advance = host.char_advance,
-		row_height = host.tree.row_height,
-		bar_height = 2*host.tree.row_height,
+		width = window.view_width,
+		height = window.view_height,
+		char_advance = window.char_advance,
+		row_height = window.tree.row_height,
+		bar_height = 2*window.tree.row_height,
 	}
 	control := -1
 	settings_button := false
 	settings_hot := Settings_Hot.None
 	sort_button := false
 	sort_row := -1
-	action := host.hot_action
+	action := window.hot_action
 	action_hot := false
 	gather_row := -1
 	gather_clear := false
-	if host.settings_open {
-		settings_hot, _ = view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
-	} else if host.sort_open {
-		sort_row, _ = view_sort_menu_at(view_sort_menu_layout(&host.tree, metrics), point)
+	if window.settings_open {
+		settings_hot, _ = view_settings_hot(view_settings_layout(&window.tree, metrics, window.settings_tab), point)
+	} else if window.sort_open {
+		sort_row, _ = view_sort_menu_at(view_sort_menu_layout(&window.tree, metrics), point)
 	} else {
-		if len(host.gather_paths) > 0 {
-			layout := gather_panel_layout(metrics, len(host.gather_paths))
+		if len(window.gather_paths) > 0 {
+			layout := gather_panel_layout(metrics, len(window.gather_paths))
 			row, clear, _ := gather_panel_at(layout, point)
 			if clear {gather_clear = true} else if row >= 0 {gather_row = row}
 		}
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
-		if !settings_button {sort_button = view_sort_control_at(point, &host.tree, metrics)}
-		gathered := len(host.gather_paths) > 0
-		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(&host), host.shift_down); inside && action_available(&host.tree, gathered, len(host.clip_paths) > 0, kind) {
+		if !settings_button {sort_button = view_sort_control_at(point, &window.tree, metrics)}
+		gathered := len(window.gather_paths) > 0
+		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(window), window.shift_down); inside && action_available(&window.tree, gathered, len(app.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
 	}
-	if control == host.hot_control && settings_button == host.hot_settings_button && settings_hot == host.hot_settings_hot && sort_button == host.hot_sort_button && sort_row == host.hot_sort_row && action == host.hot_action && action_hot == host.hot_action_hot && gather_row == host.gather_hot_row && gather_clear == host.gather_hot_clear {return}
-	host.hot_control = control
-	host.hot_settings_button = settings_button
-	host.hot_settings_hot = settings_hot
-	host.hot_sort_button = sort_button
-	host.hot_sort_row = sort_row
-	host.hot_action = action
-	host.hot_action_hot = action_hot
-	host.gather_hot_row = gather_row
-	host.gather_hot_clear = gather_clear
-	host_request_frames(1)
+	if control == window.hot_control && settings_button == window.hot_settings_button && settings_hot == window.hot_settings_hot && sort_button == window.hot_sort_button && sort_row == window.hot_sort_row && action == window.hot_action && action_hot == window.hot_action_hot && gather_row == window.gather_hot_row && gather_clear == window.gather_hot_clear {return}
+	window.hot_control = control
+	window.hot_settings_button = settings_button
+	window.hot_settings_hot = settings_hot
+	window.hot_sort_button = sort_button
+	window.hot_sort_row = sort_row
+	window.hot_action = action
+	window.hot_action_hot = action_hot
+	window.gather_hot_row = gather_row
+	window.gather_hot_clear = gather_clear
+	host_request_frames(window, 1)
 }
 
-host_capture_window_frame :: proc() {
-	if host.window == nil {return}
-	frame := host.window->frame()
-	host.settings.window = {f32(frame.origin.x), f32(frame.origin.y), f32(frame.size.width), f32(frame.size.height)}
+host_capture_window_frame :: proc(window: ^Window) {
+	if window.ns_window == nil {return}
+	frame := window.ns_window->frame()
+	app.settings.window = {f32(frame.origin.x), f32(frame.origin.y), f32(frame.size.width), f32(frame.size.height)}
 }
 
 host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
 	context = runtime.default_context()
-	host_flush_place()
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
+	for window in app.windows {
+		if window.ephemeral {continue}
+		host_flush_place(window)
+		host_capture_window_frame(window)
+	}
+	_ = settings_save(settings_path(context.temp_allocator), app.settings)
 	update_finish()
 }
 
 // host_width_locked is true when the font has no other width to step to.
 host_width_locked :: proc() -> bool {
-	return len(host.settings.font_family) == 0 || len(font_family_widths(&font_catalog, host.settings.font_family)) < 2
+	return len(app.settings.font_family) == 0 || len(font_family_widths(&font_catalog, app.settings.font_family)) < 2
 }
 
 // host_settings_view is the settings with the terminal that would actually open.
-host_settings_view :: proc() -> Settings {
-	view := host.settings
+host_settings_view :: proc(window: ^Window) -> Settings {
+	view := app.settings
 	view.terminal = host_terminal()
-	if host.settings_open {font_catalog_scan(&font_catalog)}
-	view.font_weight = font_effective_style(&font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
-	view.font_width = font_effective_width(&font_catalog, host.settings.font_family, host.settings.font_width)
-	view.line_height = settings_line_percent(host.settings)
+	if window.settings_open {font_catalog_scan(&font_catalog)}
+	view.font_weight = font_effective_style(&font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight)
+	view.font_width = font_effective_width(&font_catalog, app.settings.font_family, app.settings.font_width)
+	view.line_height = settings_line_percent(app.settings)
 	return view
 }
 
 host_terminal :: proc() -> string {
-	return terminal_effective(host.settings.terminal, host.terminals)
+	return terminal_effective(app.settings.terminal, app.terminals)
+}
+
+// Font and line settings are app-wide, so every open window's text context and
+// tree are updated together.
+host_apply_font :: proc() {
+	for window in app.windows {
+		font_apply(&window.text, &font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight)
+	}
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 // host_settings_font_family switches the interface font, keeping the weight when
 // the new family has it.
 host_settings_font_family :: proc(family: string) {
-	delete(host.settings.font_family)
-	host.settings.font_family = strings.clone(family)
+	delete(app.settings.font_family)
+	app.settings.font_family = strings.clone(family)
 	host_apply_font()
 }
 
 host_settings_font_weight :: proc(style: string) {
-	delete(host.settings.font_weight)
-	host.settings.font_weight = strings.clone(style)
+	delete(app.settings.font_weight)
+	app.settings.font_weight = strings.clone(style)
 	host_apply_font()
 }
 
 host_settings_font_width :: proc(width: string) {
-	delete(host.settings.font_width)
-	host.settings.font_width = strings.clone(width)
+	delete(app.settings.font_width)
+	app.settings.font_width = strings.clone(width)
 	host_apply_font()
 }
 
 host_settings_line_height :: proc(delta: int) {
-	current := settings_line_percent(host.settings)
-	host.settings.line_height = settings_line_height_clamped(current+delta)
-	tree_set_line_ratio(&host.tree, settings_line_ratio(host.settings))
+	current := settings_line_percent(app.settings)
+	app.settings.line_height = settings_line_height_clamped(current+delta)
+	for window in app.windows {tree_set_line_ratio(&window.tree, settings_line_ratio(app.settings))}
 	host_apply_font()
 }
 
 host_settings_letter_spacing :: proc(delta: int) {
-	host.settings.letter_spacing = settings_letter_spacing_clamped(host.settings.letter_spacing+delta)
-	text_tracking = f32(host.settings.letter_spacing)/10
+	app.settings.letter_spacing = settings_letter_spacing_clamped(app.settings.letter_spacing+delta)
+	text_tracking = f32(app.settings.letter_spacing)/10
 	host_apply_font()
 }
 
-// host_settings_show_tab switches the modal's page, dropping any open field.
-host_settings_show_tab :: proc(tab: Settings_Tab) {
-	if host.input_mode == .OpenWith || host.input_mode == .FontFamily {
-		input_reset(&host)
-		host.notice_len = 0
-	}
-	host.settings_tab = tab
-	host_request_frames(2)
+// host_open_settings refreshes the command-line-tool state each time the modal opens.
+host_open_settings :: proc(window: ^Window) {
+	window.settings_open = true
+	app.cli_installed = cli_installed()
+	app.cli_confirm = false
+	host_request_frames(window, 2)
 }
 
-host_apply_font :: proc() {
-	font_apply(&host.text, &font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight)
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+host_close_settings :: proc(window: ^Window) {
+	window.settings_open = false
+	app.cli_confirm = false
+	host_request_frames(window, 1)
+}
+
+// host_cli_action installs the shim, or arms then performs its removal.
+host_cli_action :: proc(window: ^Window) {
+	if !app.cli_installed {
+		if cli_install() {
+			app.cli_installed = true
+			notice_set(window, "command line tool installed as hfm")
+		} else {
+			notice_set(window, "could not install the command line tool")
+		}
+	} else if !app.cli_confirm {
+		app.cli_confirm = true
+	} else {
+		if cli_remove() {
+			app.cli_installed = false
+			notice_set(window, "command line tool removed")
+		} else {
+			notice_set(window, "could not remove the command line tool")
+		}
+		app.cli_confirm = false
+	}
+	host_request_frames(window, 2)
+}
+
+// host_settings_show_tab switches the modal's page, dropping any open field.
+host_settings_show_tab :: proc(window: ^Window, tab: Settings_Tab) {
+	if window.input_mode == .OpenWith || window.input_mode == .FontFamily {
+		input_reset(window)
+		window.notice_len = 0
+	}
+	window.settings_tab = tab
+	host_request_frames(window, 2)
 }
 
 // host_font_family_commit stores the typed family when it is an installed
 // monospaced one; otherwise the field stays open and the modal shows why.
-host_font_family_commit :: proc() {
-	name := strings.trim_space(host.input_value)
+host_font_family_commit :: proc(window: ^Window) {
+	name := strings.trim_space(window.input_value)
 	if len(name) == 0 {
 		host_settings_font_family("")
 	} else if family, ok := font_family_known(&font_catalog, name); ok {
 		host_settings_font_family(family)
 	} else {
-		notice_set(&host, "no such monospaced font")
+		notice_set(window, "no such monospaced font")
 		return
 	}
-	input_reset(&host)
-	host.notice_len = 0
+	input_reset(window)
+	window.notice_len = 0
 }
 
 host_settings_syntax :: proc(direction: int) {
-	next := syntax_theme_step(host.settings.syntax_theme, direction)
-	delete(host.settings.syntax_theme)
-	host.settings.syntax_theme = strings.clone(next)
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	next := syntax_theme_step(app.settings.syntax_theme, direction)
+	delete(app.settings.syntax_theme)
+	app.settings.syntax_theme = strings.clone(next)
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 host_settings_editor :: proc(direction: int) {
-	next := editor_step(host.settings.editor, host.editors, direction)
+	next := editor_step(app.settings.editor, app.editors, direction)
 	host_save_editor(next)
 }
 
 host_save_editor :: proc(name: string) {
-	delete(host.settings.editor)
-	host.settings.editor = strings.clone(name)
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	delete(app.settings.editor)
+	app.settings.editor = strings.clone(name)
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 // host_open_with_commit stores the typed app when it exists; otherwise the field
 // stays open and the modal shows why.
-host_open_with_commit :: proc() {
-	name := strings.trim_space(host.input_value)
+host_open_with_commit :: proc(window: ^Window) {
+	name := strings.trim_space(window.input_value)
 	if len(name) == 0 {
 		host_save_editor("")
 	} else if editor_valid(name) {
 		host_save_editor(name)
 	} else {
-		notice_set(&host, "no such app")
+		notice_set(window, "no such app")
 		return
 	}
-	input_reset(&host)
-	host.notice_len = 0
+	input_reset(window)
+	window.notice_len = 0
 }
 
 host_settings_animations :: proc() {
-	host.settings.animations_off = !host.settings.animations_off
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	app.settings.animations_off = !app.settings.animations_off
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 host_settings_terminal :: proc(direction: int) {
-	next, ok := terminal_step(host.settings.terminal, host.terminals, direction)
+	next, ok := terminal_step(app.settings.terminal, app.terminals, direction)
 	if !ok {return}
-	delete(host.settings.terminal)
-	host.settings.terminal = strings.clone(next)
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	delete(app.settings.terminal)
+	app.settings.terminal = strings.clone(next)
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
 host_settings_adjust :: proc(delta: int) {
-	next := settings_font_size_clamped(host.settings.font_size+delta)
-	if next == host.settings.font_size {return}
-	host.settings.font_size = next
-	_ = tree_set_font_size(&host.tree, f32(next))
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	next := settings_font_size_clamped(app.settings.font_size+delta)
+	if next == app.settings.font_size {return}
+	app.settings.font_size = next
+	for window in app.windows {_ = tree_set_font_size(&window.tree, f32(next))}
+	host_apply_font()
 }
 
 // host_sort_set re-reads every column in the new order; tree_refresh keeps the
 // selection by path, and the sibling listings re-read on the next layout pass.
 host_sort_set :: proc(sort: Sort) {
-	if sort == host.tree.sort {return}
-	host.tree.sort = sort
-	delete(host.settings.sort)
-	host.settings.sort = strings.clone(sort_encode(sort))
-	_ = tree_refresh(&host.tree)
-	host_capture_window_frame()
-	_ = settings_save(settings_path(context.temp_allocator), host.settings)
-	host_request_frames(2)
+	if sort == sort_parse(app.settings.sort) {return}
+	delete(app.settings.sort)
+	app.settings.sort = strings.clone(sort_encode(sort))
+	for window in app.windows {
+		window.tree.sort = sort
+		_ = tree_refresh(&window.tree)
+	}
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
 }
 
-host_miniaturize :: proc() {
-	host.window->setStyleMask(MINIMIZE_STYLE)
-	intrinsics.objc_send(nil, host.window, "miniaturize:", NS.id(nil))
-	host.window->setStyleMask(WINDOW_STYLE)
+host_miniaturize :: proc(window: ^Window) {
+	window.ns_window->setStyleMask(MINIMIZE_STYLE)
+	intrinsics.objc_send(nil, window.ns_window, "miniaturize:", NS.id(nil))
+	window.ns_window->setStyleMask(WINDOW_STYLE)
 }
 
-host_apply_control :: proc(index: int) {
+host_apply_control :: proc(window: ^Window, index: int) {
 	switch index {
 	case CONTROL_CLOSE:
-		host.window->close()
+		window.ns_window->close()
 	case CONTROL_MINIMIZE:
-		host_miniaturize()
+		host_miniaturize(window)
 	case CONTROL_ZOOM:
-		intrinsics.objc_send(nil, host.window, "zoom:", NS.id(nil))
+		intrinsics.objc_send(nil, window.ns_window, "zoom:", NS.id(nil))
 	}
 }
 
 host_accepts_first :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
 
-host_should_terminate :: proc "c" (self: NS.id, cmd: NS.SEL, app: ^NS.Application) -> bool {return true}
+host_should_terminate :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.Application) -> bool {return true}
 
 // flagsChanged tracks Shift so the action labels flip while it is held; no key
 // event arrives until another key is pressed.
 host_flags_changed :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
+	window := window_for_view(self)
+	if window == nil {return}
 	down := .Shift in event->modifierFlags()
-	if down == host.shift_down {return}
-	host.shift_down = down
-	host_request_frames(1)
+	if down == window.shift_down {return}
+	window.shift_down = down
+	host_request_frames(window, 1)
 }
 
 host_on_frame :: proc "c" (self: NS.id, cmd: NS.SEL, timer: NS.id) {
 	context = runtime.default_context()
-	if host.frames_pending <= 0 {
-		macos.display_link_set_paused(&host.display_link, true)
+	host_reap_doomed()
+	window := window_for_delegate(self)
+	if window == nil {return}
+	if window.frames_pending <= 0 {
+		macos.display_link_set_paused(&window.display_link, true)
 		return
 	}
 	// The frame is consumed before drawing, so a frame requested while drawing (a preview or
 	// listing still waiting) survives it.
-	host.frames_pending -= 1
-	watch_refresh_due(&host)
-	host_render()
-	host_remember_place()
+	window.frames_pending -= 1
+	watch_refresh_due(window)
+	host_render(window)
+	host_remember_place(window)
 	free_all(context.temp_allocator)
-	if host.frames_pending <= 0 {macos.display_link_set_paused(&host.display_link, true)}
+	if window.frames_pending <= 0 {macos.display_link_set_paused(&window.display_link, true)}
 }
 
 host_surface_changed :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
 	context = runtime.default_context()
-	host_request_frames(2)
+	if window := window_for_delegate(self); window != nil {host_request_frames(window, 2)}
 }
 
 host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	if host.view_width < 1 || host.view_height < 1 {return}
-	point := host_pointer_from_event(event)
-	host.shift_down = .Shift in event->modifierFlags()
+	window := window_for_view(self)
+	if window == nil {return}
+	if window.view_width < 1 || window.view_height < 1 {return}
+	point := host_pointer_from_event(window, event)
+	window.shift_down = .Shift in event->modifierFlags()
 	metrics := View_Metrics{
-		width = host.view_width,
-		height = host.view_height,
-		char_advance = host.char_advance,
-		row_height = host.tree.row_height,
-		bar_height = 2*host.tree.row_height,
+		width = window.view_width,
+		height = window.view_height,
+		char_advance = window.char_advance,
+		row_height = window.tree.row_height,
+		bar_height = 2*window.tree.row_height,
 	}
-	if host.preview_shown && point.x >= host.preview_rect.x && point.x < host.preview_rect.x+host.preview_rect.w && point.y >= host.preview_rect.y && point.y < host.preview_rect.y+host.preview_rect.h {return}
-	if host.edit_mode != .None {
-		edit_commit(&host)
-		host_request_frames(2)
+	if window.preview_shown && point.x >= window.preview_rect.x && point.x < window.preview_rect.x+window.preview_rect.w && point.y >= window.preview_rect.y && point.y < window.preview_rect.y+window.preview_rect.h {return}
+	if window.edit_mode != .None {
+		edit_commit(window)
+		host_request_frames(window, 2)
 		return
 	}
-	if host.sort_open {
-		layout := view_sort_menu_layout(&host.tree, metrics)
+	if window.sort_open {
+		layout := view_sort_menu_layout(&window.tree, metrics)
 		if row, inside := view_sort_menu_at(layout, point); inside {
 			if row >= 0 {host_sort_set(sort_options[row])}
-			host.sort_open = false
-			host_request_frames(2)
+			window.sort_open = false
+			host_request_frames(window, 2)
 			return
 		}
-		host.sort_open = false
-		host_request_frames(1)
-		if view_sort_control_at(point, &host.tree, metrics) {return}
+		window.sort_open = false
+		host_request_frames(window, 1)
+		if view_sort_control_at(point, &window.tree, metrics) {return}
 	}
-	if host.settings_open {
-		hot, inside := view_settings_hot(view_settings_layout(&host.tree, metrics, host.settings_tab), point)
-		field_kept := (host.input_mode == .OpenWith && hot == .EditorCustom) || (host.input_mode == .FontFamily && hot == .FontCustom)
-		if (host.input_mode == .OpenWith || host.input_mode == .FontFamily) && !field_kept {
-			input_reset(&host)
-			host.notice_len = 0
+	if window.settings_open {
+		hot, inside := view_settings_hot(view_settings_layout(&window.tree, metrics, window.settings_tab), point)
+		field_kept := (window.input_mode == .OpenWith && hot == .EditorCustom) || (window.input_mode == .FontFamily && hot == .FontCustom)
+		if (window.input_mode == .OpenWith || window.input_mode == .FontFamily) && !field_kept {
+			input_reset(window)
+			window.notice_len = 0
 		}
 		if !inside {
-			host.settings_open = false
-			host_request_frames(2)
+			host_close_settings(window)
+		} else if hot == .CliAction {
+			host_cli_action(window)
+		} else if hot == .CliCancel {
+			app.cli_confirm = false
+			host_request_frames(window, 2)
 		} else if hot == .Minus {
 			host_settings_adjust(-1)
 		} else if hot == .Plus {
@@ -849,205 +1097,207 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		} else if hot == .EditorNext {
 			host_settings_editor(1)
 		} else if hot == .FontPrevious {
-			host_settings_font_family(font_family_step(&font_catalog, host.settings.font_family, -1))
+			host_settings_font_family(font_family_step(&font_catalog, app.settings.font_family, -1))
 		} else if hot == .FontNext {
-			host_settings_font_family(font_family_step(&font_catalog, host.settings.font_family, 1))
+			host_settings_font_family(font_family_step(&font_catalog, app.settings.font_family, 1))
 		} else if hot == .WeightPrevious || hot == .WeightNext {
-			if len(host.settings.font_family) > 0 {
+			if len(app.settings.font_family) > 0 {
 				step := hot == .WeightNext ? 1 : -1
-				host_settings_font_weight(font_weight_step(&font_catalog, host.settings.font_family, host.settings.font_width, host.settings.font_weight, step))
+				host_settings_font_weight(font_weight_step(&font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight, step))
 			}
 		} else if hot == .WidthPrevious || hot == .WidthNext {
-			if len(host.settings.font_family) > 0 {
-				host_settings_font_width(font_width_step(&font_catalog, host.settings.font_family, host.settings.font_width, hot == .WidthNext ? 1 : -1))
+			if len(app.settings.font_family) > 0 {
+				host_settings_font_width(font_width_step(&font_catalog, app.settings.font_family, app.settings.font_width, hot == .WidthNext ? 1 : -1))
 			}
 		} else if hot == .LineMinus || hot == .LinePlus {
 			host_settings_line_height(hot == .LinePlus ? 5 : -5)
 		} else if hot == .SpacingMinus || hot == .SpacingPlus {
 			host_settings_letter_spacing(hot == .SpacingPlus ? 2 : -2)
 		} else if hot == .TabGeneral || hot == .TabFont {
-			host_settings_show_tab(hot == .TabFont ? .Font : .General)
-		} else if hot == .FontCustom && host.input_mode != .FontFamily {
-			input_begin(&host, .FontFamily)
-			input_set(&host, host.settings.font_family)
-			host.notice_len = 0
-			host_request_frames(2)
+			host_settings_show_tab(window, hot == .TabFont ? .Font : .General)
+		} else if hot == .FontCustom && window.input_mode != .FontFamily {
+			input_begin(window, .FontFamily)
+			input_set(window, app.settings.font_family)
+			window.notice_len = 0
+			host_request_frames(window, 2)
 		} else if hot == .SyntaxPrevious {
 			host_settings_syntax(-1)
 		} else if hot == .SyntaxNext {
 			host_settings_syntax(1)
-		} else if hot == .EditorCustom && host.input_mode != .OpenWith {
-			input_begin(&host, .OpenWith)
-			input_set(&host, host.settings.editor)
-			host.notice_len = 0
-			host_request_frames(2)
+		} else if hot == .EditorCustom && window.input_mode != .OpenWith {
+			input_begin(window, .OpenWith)
+			input_set(window, app.settings.editor)
+			window.notice_len = 0
+			host_request_frames(window, 2)
 		}
 		return
 	}
-	if len(host.gather_paths) > 0 {
-		layout := gather_panel_layout(metrics, len(host.gather_paths))
+	if len(window.gather_paths) > 0 {
+		layout := gather_panel_layout(metrics, len(window.gather_paths))
 		if row, clear, inside := gather_panel_at(layout, point); inside {
 			if clear {
-				gather_clear(&host.gather_paths)
+				gather_clear(&window.gather_paths)
 			} else if row >= 0 {
-				gather_remove(&host.gather_paths, host.gather_paths[row])
+				gather_remove(&window.gather_paths, window.gather_paths[row])
 			}
-			host.gather_hot_row = -1
-			host.gather_hot_clear = false
-			host_request_frames(2)
+			window.gather_hot_row = -1
+			window.gather_hot_clear = false
+			host_request_frames(window, 2)
 			return
 		}
 	}
 	if control := view_control_at(point, metrics); control >= 0 {
-		host_apply_control(control)
+		host_apply_control(window, control)
 		return
 	}
-	if view_sort_control_at(point, &host.tree, metrics) {
-		host.sort_open = true
-		host_request_frames(2)
+	if view_sort_control_at(point, &window.tree, metrics) {
+		window.sort_open = true
+		host_request_frames(window, 2)
 		return
 	}
 	if view_settings_control_at(point, metrics) {
-		host.settings_open = true
-		host_request_frames(2)
+		host_open_settings(window)
 		return
 	}
 	if point.y < CHROME_HEIGHT {
 		if event->clickCount() >= 2 {
-			host_apply_control(CONTROL_ZOOM)
+			host_apply_control(window, CONTROL_ZOOM)
 			return
 		}
-		intrinsics.objc_send(nil, host.window, "performWindowDragWithEvent:", event)
+		intrinsics.objc_send(nil, window.ns_window, "performWindowDragWithEvent:", event)
 		return
 	}
-	if point.y >= host.view_height-host.tree.row_height {
-		if kind, inside := action_bar_at(metrics, point, len(host.gather_paths) > 0, action_current_gathered(&host), host.shift_down); inside {action_perform(&host, kind, host.shift_down)}
+	if point.y >= window.view_height-window.tree.row_height {
+		if kind, inside := action_bar_at(metrics, point, len(window.gather_paths) > 0, action_current_gathered(window), window.shift_down); inside {action_perform(window, kind, window.shift_down)}
 		return
 	}
-	if point.y >= host.view_height-2*host.tree.row_height {
-		input_reset(&host)
-		host_request_frames(1)
+	if point.y >= window.view_height-2*window.tree.row_height {
+		input_reset(window)
+		host_request_frames(window, 1)
 		return
 	}
-	column := tree_column_at(&host.tree, point.x)
-	row := column >= 0 ? tree_row_at(&host.tree, column, point.y) : -1
+	column := tree_column_at(&window.tree, point.x)
+	row := column >= 0 ? tree_row_at(&window.tree, column, point.y) : -1
 	if column >= 0 && row >= 0 {
-		tree_focus_column(&host.tree, column)
-		_ = tree_select(&host.tree, column, row)
+		tree_focus_column(&window.tree, column)
+		_ = tree_select(&window.tree, column, row)
 	}
-	host_request_frames(2)
+	host_request_frames(window, 2)
 }
 
 host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	host_update_hover(host_pointer_from_event(event))
+	if window := window_for_view(self); window != nil {host_update_hover(window, host_pointer_from_event(window, event))}
 }
 
 WHEEL_ROWS_MAX :: 24
 
 host_scroll_wheel :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	if host.settings_open || host.edit_mode != .None {return}
-	point := host_pointer_from_event(event)
+	window := window_for_view(self)
+	if window == nil {return}
+	if window.settings_open || window.edit_mode != .None {return}
+	point := host_pointer_from_event(window, event)
 	delta := f32(event->scrollingDeltaY())
 	precise := bool(event->hasPreciseScrollingDeltas())
-	if preview_scroll_wheel(&host, point.x, point.y, delta, precise) {
-		host_request_frames(2)
+	if preview_scroll_wheel(window, point.x, point.y, delta, precise) {
+		host_request_frames(window, 2)
 		return
 	}
 	// Anywhere else the wheel moves the selection through the active column, and
 	// the cascade follows it as it does for the arrow keys.
-	host.wheel_rows -= precise ? delta/host.tree.row_height : delta*3
-	rows := int(host.wheel_rows)
+	window.wheel_rows -= precise ? delta/window.tree.row_height : delta*3
+	rows := int(window.wheel_rows)
 	if rows == 0 {return}
-	host.wheel_rows -= f32(rows)
+	window.wheel_rows -= f32(rows)
 	// One row at a time, like the arrow keys, so it carries on into the neighbouring folder.
 	step := rows < 0 ? -1 : 1
 	for _ in 0 ..< min(abs(rows), WHEEL_ROWS_MAX) {
-		if !tree_move(&host.tree, step) {break}
+		if !tree_move(&window.tree, step) {break}
 	}
-	host_request_frames(2)
+	host_request_frames(window, 2)
 }
 
 host_mouse_moved :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	host_update_hover(host_pointer_from_event(event))
+	if window := window_for_view(self); window != nil {host_update_hover(window, host_pointer_from_event(window, event))}
 }
 
-host_select_index :: proc(index: int) -> bool {
-	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
-	count := len(host.tree.columns[host.tree.active].entries)
+host_select_index :: proc(window: ^Window, index: int) -> bool {
+	if window.tree.active < 0 || window.tree.active >= len(window.tree.columns) {return false}
+	count := len(window.tree.columns[window.tree.active].entries)
 	if count == 0 {return false}
-	return tree_select(&host.tree, host.tree.active, clamp(index, 0, count-1), enter = false)
+	return tree_select(&window.tree, window.tree.active, clamp(index, 0, count-1), enter = false)
 }
 
-host_select_end :: proc() -> bool {
-	if host.tree.active < 0 || host.tree.active >= len(host.tree.columns) {return false}
-	return host_select_index(len(host.tree.columns[host.tree.active].entries)-1)
+host_select_end :: proc(window: ^Window) -> bool {
+	if window.tree.active < 0 || window.tree.active >= len(window.tree.columns) {return false}
+	return host_select_index(window, len(window.tree.columns[window.tree.active].entries)-1)
 }
 
 host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
+	window := window_for_view(self)
+	if window == nil {return}
 	command := .Command in event->modifierFlags()
 	control := .Control in event->modifierFlags()
 	option := .Option in event->modifierFlags()
 	shift := .Shift in event->modifierFlags()
-	host.shift_down = shift
+	window.shift_down = shift
 	key := uint(event->keyCode())
-	if host.sort_open {
+	if window.sort_open {
 		switch {
 		case command && key == 13:
-			host.window->close()
+			window.ns_window->close()
 		case command && key == 12:
-			host.app->terminate(nil)
+			app.application->terminate(nil)
 		case key == 53:
-			host.sort_open = false
-			host_request_frames(1)
+			window.sort_open = false
+			host_request_frames(window, 1)
 		}
 		return
 	}
-	if host.settings_open && (host.input_mode == .OpenWith || host.input_mode == .FontFamily) {
+	if window.settings_open && (window.input_mode == .OpenWith || window.input_mode == .FontFamily) {
 		switch {
 		case command && (key == 13 || key == 12):
-			if key == 13 {host.window->close()} else {host.app->terminate(nil)}
+			if key == 13 {window.ns_window->close()} else {app.application->terminate(nil)}
 		case key == 36, key == 76:
-			if host.input_mode == .FontFamily {host_font_family_commit()} else {host_open_with_commit()}
+			if window.input_mode == .FontFamily {host_font_family_commit(window)} else {host_open_with_commit(window)}
 		case key == 53:
-			input_reset(&host)
-			host.notice_len = 0
+			input_reset(window)
+			window.notice_len = 0
 		case:
-			_ = input_handle_key(&host, event, key, command, option, control, shift)
+			_ = input_handle_key(window, event, key, command, option, control, shift)
 		}
-		host_request_frames(2)
+		host_request_frames(window, 2)
 		return
 	}
-	if host.settings_open {
+	if window.settings_open {
 		switch {
 		case command && key == 13:
-			host.window->close()
+			window.ns_window->close()
 		case command && key == 12:
-			host.app->terminate(nil)
+			app.application->terminate(nil)
 		case key == 48:
-			host_settings_show_tab(host.settings_tab == .General ? .Font : .General)
+			host_settings_show_tab(window, window.settings_tab == .General ? .Font : .General)
 		case key == 53, command && key == 43:
-			input_reset(&host)
-			host.settings_open = false
-			host_request_frames(1)
+			input_reset(window)
+			host_close_settings(window)
 		}
 		return
 	}
-	if host.edit_mode != .None && command && (key == 13 || key == 12) {
-		if key == 13 {host.window->close()} else {host.app->terminate(nil)}
+	if window.edit_mode != .None && command && (key == 13 || key == 12) {
+		if key == 13 {window.ns_window->close()} else {app.application->terminate(nil)}
 		return
 	}
-	if host.edit_mode != .None {
-		_ = edit_handle_key(&host, event, key, command, option, control, shift)
-		host_request_frames(2)
+	if window.edit_mode != .None {
+		_ = edit_handle_key(window, event, key, command, option, control, shift)
+		host_request_frames(window, 2)
 		return
 	}
-	if input_editing(&host) && key != 36 && key != 76 && key != 53 && key != 48 && key != 125 && key != 126 {
-		if input_handle_key(&host, event, key, command, option, control, shift) {
-			host_request_frames(2)
+	if input_editing(window) && key != 36 && key != 76 && key != 53 && key != 48 && key != 125 && key != 126 {
+		if input_handle_key(window, event, key, command, option, control, shift) {
+			host_request_frames(window, 2)
 			return
 		}
 	}
@@ -1055,99 +1305,118 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if characters := event->characters(); characters != nil {
 			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
 				switch {
-				case text[0] == '/' && host.input_mode == .None:
-					search_begin(&host)
-				case host.input_mode == .None && action_is_number_key(key):
+				case text[0] == '/' && window.input_mode == .None:
+					search_begin(window)
+				case window.input_mode == .None && action_is_number_key(key):
 					// Numbered action shortcuts are handled in the switch below.
-				case host.input_mode == .None:
-					input_begin(&host, .Cd)
-					_ = text_input.insert_text(&host.text_state, &host.input_value, text)
+				case window.input_mode == .None:
+					input_begin(window, .Cd)
+					_ = text_input.insert_text(&window.text_state, &window.input_value, text)
 				}
 			}
 		}
 	}
-	if host.input_mode == .None && !command && preview_handle_key(&host, key) {
-		host_request_frames(2)
+	if window.input_mode == .None && !command && preview_handle_key(window, key) {
+		host_request_frames(window, 2)
 		return
 	}
 	switch {
 	case command && key == 13:
-		host.window->close()
+		window.ns_window->close()
 		return
 	case command && key == 12:
-		host.app->terminate(nil)
+		app.application->terminate(nil)
 		return
 	case command && key == 43:
-		host.sort_open = false
-		host.settings_open = true
-		host_request_frames(1)
+		window.sort_open = false
+		host_open_settings(window)
+		return
+	case command && key == 45:
+		host_new_window(window)
 		return
 	case command && key == 15:
-		_ = tree_refresh(&host.tree)
+		_ = tree_refresh(&window.tree)
 	case key == 51:
-		if host.input_mode == .Search && host.search_committed {
-			_ = text_input.delete_backward(&host.text_state, &host.input_value)
-			search_refresh(&host)
+		if window.input_mode == .Search && window.search_committed {
+			_ = text_input.delete_backward(&window.text_state, &window.input_value)
+			search_refresh(window)
 		}
 	case key == 53:
-		input_reset(&host)
+		input_reset(window)
 	case key == 126:
-		if host.input_mode == .Cd {input_history_move(&host, 1)} else {_ = tree_move(&host.tree, -1)}
+		if window.input_mode == .Cd {input_history_move(window, 1)} else {_ = tree_move(&window.tree, -1)}
 	case key == 125:
-		if host.input_mode == .Cd {input_history_move(&host, -1)} else {_ = tree_move(&host.tree, 1)}
+		if window.input_mode == .Cd {input_history_move(window, -1)} else {_ = tree_move(&window.tree, 1)}
 	case key == 123:
-		_ = tree_collapse(&host.tree)
+		_ = tree_collapse(&window.tree)
 	case key == 124:
-		if !preview_focus_begin(&host) {_ = tree_expand(&host.tree)}
+		if !preview_focus_begin(window) {_ = tree_expand(&window.tree)}
 	case key == 36, key == 76:
-		switch host.input_mode {
-		case .Cd:     cd_run(&host)
-		case .OpenWith: host_open_with_commit()
-		case .FontFamily: host_font_family_commit()
+		switch window.input_mode {
+		case .Cd:     cd_run(window)
+		case .OpenWith: host_open_with_commit(window)
+		case .FontFamily: host_font_family_commit(window)
 		case .Search:
-			if host.search_committed {search_next(&host, 1)} else {host.search_committed = true; text_input.collapse_selection(&host.text_state, host.input_value, len(host.input_value)); search_commit(&host)}
-		case .None:   host_enter()
+			if window.search_committed {search_next(window, 1)} else {window.search_committed = true; text_input.collapse_selection(&window.text_state, window.input_value, len(window.input_value)); search_commit(window)}
+		case .None:   host_enter(window)
 		}
 	case key == 48:
-		if host.input_mode == .Cd {cd_complete(&host)}
+		if window.input_mode == .Cd {cd_complete(window)}
 	case key == 45:
-		if host.input_mode == .Search && host.search_committed {search_next(&host, shift ? -1 : 1)}
+		if window.input_mode == .Search && window.search_committed {search_next(window, shift ? -1 : 1)}
 	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28, key == 25, key == 29:
-		if host.input_mode == .None {
-			if kind, ok := action_number_key_code(key); ok {action_perform(&host, kind, shift)}
+		if window.input_mode == .None {
+			if kind, ok := action_number_key_code(key); ok {action_perform(window, kind, shift)}
 		}
 	case key == 115:
-		_ = host_select_index(0)
+		_ = host_select_index(window, 0)
 	case key == 119:
-		_ = host_select_end()
+		_ = host_select_end(window)
 	case key == 116:
-		_ = tree_move(&host.tree, -10)
+		_ = tree_move(&window.tree, -10)
 	case key == 121:
-		_ = tree_move(&host.tree, 10)
+		_ = tree_move(&window.tree, 10)
 	}
-	host_request_frames(2)
+	host_request_frames(window, 2)
+}
+
+// host_new_window opens an ephemeral window on the focused window's current
+// folder, offset a little so it does not sit exactly on top.
+host_new_window :: proc(source: ^Window) -> ^Window {
+	start := ""
+	if source != nil {
+		if entry, ok := tree_selected_entry(&source.tree); ok && entry.is_dir {start = entry.path} else {start = source.tree.columns[source.tree.active].dir}
+	}
+	window := window_create(start, ephemeral = true)
+	if window != nil && source != nil && source.ns_window != nil {
+		frame := source.ns_window->frame()
+		window.ns_window->setFrameOrigin({frame.origin.x+24, frame.origin.y-24})
+	}
+	return window
 }
 
 // host_enter opens the selection: folders open as columns, text files take the
 // focus into their preview (when there is anything to scroll), and every other
 // file opens in its default app.
-host_enter :: proc() {
-	if entry, ok := tree_selected_entry(&host.tree); ok && !entry.is_dir {
-		if host.preview.kind == .Text {
-			_ = preview_focus_begin(&host)
+host_enter :: proc(window: ^Window) {
+	if entry, ok := tree_selected_entry(&window.tree); ok && !entry.is_dir {
+		if window.preview.kind == .Text {
+			_ = preview_focus_begin(window)
 		} else {
-			action_open(&host)
+			action_open(window)
 		}
 		return
 	}
-	_ = tree_expand(&host.tree)
+	_ = tree_expand(&window.tree)
 }
 
 host_run :: proc() -> bool {
-	if !host_initialize() {return false}
-	defer host_shutdown()
+	if !app_initialize() {return false}
+	defer app_shutdown()
 	devlog.started(devlog.global(), {feature = "app", operation = "presentation"})
-	host.app->run()
+	// The first window is created by applicationDidFinishLaunching, so an hfm
+	// launch can suppress it in favour of the folder it was asked to open.
+	app.application->run()
 	devlog.stopped(devlog.global(), {feature = "app", operation = "presentation"})
 	return true
 }

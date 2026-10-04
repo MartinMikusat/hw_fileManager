@@ -28,13 +28,13 @@ View_Edit :: struct {
 	selection_end:   int,
 }
 
-edit_text :: proc(host: ^Host) -> string {
+edit_text :: proc(host: ^Window) -> string {
 	return host.edit_value
 }
 
 // edit_begin seeds the inline editor: the selected name for Rename, an empty name
 // on the active column's first row for NewFile.
-edit_begin :: proc(host: ^Host, mode: Edit_Mode) {
+edit_begin :: proc(host: ^Window, mode: Edit_Mode) {
 	edit_cancel(host)
 	input_reset(host)
 	initial := ""
@@ -54,7 +54,7 @@ edit_begin :: proc(host: ^Host, mode: Edit_Mode) {
 	host.edit_mode = mode
 }
 
-edit_cancel :: proc(host: ^Host) {
+edit_cancel :: proc(host: ^Window) {
 	if host.text_state.active_field != text_input.NO_FIELD {
 		_ = text_input.blur(&host.text_state, &host.edit_value)
 	}
@@ -84,7 +84,7 @@ edit_stage :: proc(mode: Edit_Mode) -> string {
 // edit_target_directory is the folder the edit applies to. Rename uses the
 // selected entry's own parent so it can never diverge from the entry; New file
 // uses the active column.
-edit_target_directory :: proc(host: ^Host) -> string {
+edit_target_directory :: proc(host: ^Window) -> string {
 	if host.edit_mode == .Rename {
 		if entry, ok := tree_selected_entry(&host.tree); ok {return filepath.dir(entry.path)}
 	}
@@ -94,7 +94,7 @@ edit_target_directory :: proc(host: ^Host) -> string {
 
 // edit_conflict reports whether the typed name already exists in the target
 // directory, other than the entry being renamed.
-edit_conflict :: proc(host: ^Host) -> bool {
+edit_conflict :: proc(host: ^Window) -> bool {
 	if host.edit_mode == .None {return false}
 	name := host.edit_value
 	if len(name) == 0 {return false}
@@ -116,7 +116,7 @@ edit_conflict :: proc(host: ^Host) -> bool {
 	return path_taken(destination)
 }
 
-edit_commit :: proc(host: ^Host) {
+edit_commit :: proc(host: ^Window) {
 	if host.edit_mode == .None {return}
 	name := strings.clone(host.edit_value, context.temp_allocator)
 	mode := host.edit_mode
@@ -175,7 +175,7 @@ edit_commit :: proc(host: ^Host) {
 	devlog.succeeded(devlog.global(), {feature = "files", operation = "edit_name"}, {file_id = name, stage = edit_stage(mode)})
 	if mode == .Rename {
 		gather_remap(&host.gather_paths, original, destination)
-		gather_remap(&host.clip_paths, original, destination)
+		gather_remap(&app.clip_paths, original, destination)
 	}
 	column := host.edit_column
 	edit_cancel(host)
@@ -194,7 +194,7 @@ edit_insertable :: proc(value: string) -> bool {
 
 // field_handle_key applies the shared text-field commands (insertion, caret,
 // selection, word and line motion, deletion, clipboard) to target.
-field_handle_key :: proc(host: ^Host, target: ^string, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
+field_handle_key :: proc(host: ^Window, target: ^string, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
 	state := &host.text_state
 	if !command && !control {
 		if characters := event->characters(); characters != nil {
@@ -246,7 +246,7 @@ field_handle_key :: proc(host: ^Host, target: ^string, event: ^NS.Event, key: ui
 }
 
 // edit_handle_key adds Return and Escape to the shared field commands.
-edit_handle_key :: proc(host: ^Host, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
+edit_handle_key :: proc(host: ^Window, event: ^NS.Event, key: uint, command, option, control, shift: bool) -> bool {
 	if field_handle_key(host, &host.edit_value, event, key, command, option, control, shift) {return true}
 	switch key {
 	case 36, 76: edit_commit(host)
@@ -275,7 +275,7 @@ edit_pasteboard :: proc() -> ^NS.Object {
 	return intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSPasteboard"), "generalPasteboard")
 }
 
-edit_clipboard_copy :: proc(host: ^Host, value: string) {
+edit_clipboard_copy :: proc(host: ^Window, value: string) {
 	selected := text_input.selected_text(&host.text_state, value)
 	if len(selected) == 0 {return}
 	pasteboard := edit_pasteboard()
@@ -284,7 +284,7 @@ edit_clipboard_copy :: proc(host: ^Host, value: string) {
 	_ = intrinsics.objc_send(NS.BOOL, pasteboard, "setString:forType:", edit_nsstring(selected), edit_nsstring("public.utf8-plain-text"))
 }
 
-edit_clipboard_paste :: proc(host: ^Host, target: ^string) {
+edit_clipboard_paste :: proc(host: ^Window, target: ^string) {
 	pasteboard := edit_pasteboard()
 	if pasteboard == nil {return}
 	value := intrinsics.objc_send(^NS.String, pasteboard, "stringForType:", edit_nsstring("public.utf8-plain-text"))

@@ -41,6 +41,8 @@ Settings_Hot :: enum {
 	WeightNext,
 	WidthPrevious,
 	WidthNext,
+	CliAction,
+	CliCancel,
 }
 
 Settings_Tab :: enum {
@@ -88,7 +90,14 @@ View_State :: struct {
 	shift:            bool,
 	settings_tab:     Settings_Tab,
 	width_locked:     bool,
+	cli_installed:    bool,
+	cli_confirm:      bool,
 }
+
+CLI_INSTALL_LABEL :: "[Install]"
+CLI_REMOVE_LABEL :: "[Remove]"
+CLI_CONFIRM_LABEL :: "[Confirm]"
+CLI_CANCEL_LABEL :: "[Cancel]"
 
 SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
@@ -111,6 +120,7 @@ Settings_Row :: enum {
 	Animations,
 	Editor,
 	Syntax,
+	CommandLine,
 }
 
 Settings_Control :: struct {
@@ -431,12 +441,16 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 		layout.tops[.Animations] = first+row
 		layout.tops[.Editor] = first+2*row
 		layout.tops[.Syntax] = first+3*row
-		layout.hint_top = first+4*row
+		layout.tops[.CommandLine] = first+4*row
+		layout.hint_top = first+5*row
 		stepper(&layout, layout.tops[.Terminal], right, button, ch, row, .Previous, .Next, {PREVIOUS_LABEL, NEXT_LABEL}, .Terminal)
 		add(&layout, {right-5*ch, layout.tops[.Animations], 5*ch, row}, .Animations, "", .Animations)
 		stepper(&layout, layout.tops[.Editor], right, button, ch, row, .EditorPrevious, .EditorNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Editor)
 		add(&layout, {right-2*button-ch-ch-other, layout.tops[.Editor], other, row}, .EditorCustom, EDITOR_CUSTOM_LABEL, .Editor)
 		stepper(&layout, layout.tops[.Syntax], right, button, ch, row, .SyntaxPrevious, .SyntaxNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Syntax)
+		cli_action := f32(len(CLI_CONFIRM_LABEL))*ch
+		add(&layout, {right-cli_action, layout.tops[.CommandLine], cli_action, row}, .CliAction, CLI_INSTALL_LABEL, .CommandLine)
+		add(&layout, {right-cli_action-ch-f32(len(CLI_CANCEL_LABEL))*ch, layout.tops[.CommandLine], f32(len(CLI_CANCEL_LABEL))*ch, row}, .CliCancel, CLI_CANCEL_LABEL, .CommandLine)
 	}
 	return layout
 }
@@ -893,6 +907,7 @@ view_draw_settings :: proc(
 		case .Animations: return "Animations"
 		case .Editor:     return fmt.tprintf("Text editor: %s", editor_label(settings.editor))
 		case .Syntax:     return fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)])
+		case .CommandLine: return "Command line tool"
 		}
 		return ""
 	}
@@ -928,10 +943,12 @@ view_draw_settings :: proc(
 		control := layout.controls[index]
 		is_tab := control.hot == .TabGeneral || control.hot == .TabFont
 		if !is_tab && editing && control.row == editing_row {continue}
+		if control.hot == .CliCancel && !state.cli_confirm {continue}
 		disabled := !is_tab && locked(control.row, settings, state)
 		inverted := hot.settings_hot == control.hot && !disabled
 		label := control.label
 		if control.hot == .Animations {label = settings.animations_off ? "[off]" : "[on]"}
+		if control.hot == .CliAction {label = state.cli_confirm ? CLI_CONFIRM_LABEL : (state.cli_installed ? CLI_REMOVE_LABEL : CLI_INSTALL_LABEL)}
 		color := disabled ? COLOR_DIM : COLOR_TEXT
 		if is_tab {
 			active := (control.hot == .TabGeneral) == (state.settings_tab == .General)
