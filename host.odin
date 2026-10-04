@@ -947,6 +947,10 @@ host_persist_state :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Noti
 	}
 	_ = settings_save(settings_path(context.temp_allocator), app.settings)
 	update_finish()
+	// terminate: can exit without returning through main, so stop the journal here
+	// rather than relying on main's defer; otherwise every quit looks like a crash
+	// and two of them trip safe mode.
+	devlog.global_destroy()
 }
 
 // host_width_locked is true when the font has no other width to step to.
