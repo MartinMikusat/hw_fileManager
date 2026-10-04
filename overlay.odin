@@ -60,7 +60,8 @@ overlay_click :: proc(window: ^Window, metrics: View_Metrics, point: ui.Vec2) ->
 			switch index {
 			case 0: settings_panel_diagnostics_copy(window)
 			case 1: settings_panel_diagnostics_export(window)
-			case 2: settings_panel_safe_reset(window)
+			case 2: settings_panel_safe_dismiss(window)
+			case 3: settings_panel_safe_reset(window)
 			}
 			return true
 		}

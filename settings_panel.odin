@@ -62,6 +62,15 @@ settings_panel_close :: proc(window: ^Window) {
 	host_request_frames(window, 1)
 }
 
+// settings_panel_safe_dismiss leaves safe mode and clears the crash counter, keeping
+// the settings; use it when the crashes were not caused by one.
+settings_panel_safe_dismiss :: proc(window: ^Window) {
+	diag.safe_clear(diagnostics_config().app_name)
+	app.safe_mode = false
+	update_start()
+	settings_panel_apply_font()
+}
+
 // settings_panel_safe_reset restores default settings and clears the crash counter, so a
 // bad setting that crashes the app is left behind.
 settings_panel_safe_reset :: proc(window: ^Window) {

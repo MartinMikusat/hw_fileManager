@@ -108,7 +108,9 @@ SAFE_TITLE :: "Safe mode"
 SAFE_SUBTITLE :: "hw_fileManager crashed on its last two launches."
 SAFE_COPY_LABEL :: "[Copy diagnostics]"
 SAFE_EXPORT_LABEL :: "[Export]"
+SAFE_DISMISS_LABEL :: "[Dismiss]"
 SAFE_RESET_LABEL :: "[Reset settings]"
+SAFE_LABELS :: [4]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_DISMISS_LABEL, SAFE_RESET_LABEL}
 
 SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
@@ -416,7 +418,7 @@ view_sort_menu_at :: proc(layout: Sort_Menu, point: ui.Vec2) -> (row: int, insid
 
 Safe_Panel :: struct {
 	panel:   draw.Rect,
-	buttons: [3]draw.Rect,
+	buttons: [4]draw.Rect,
 	count:   int,
 }
 
@@ -425,8 +427,8 @@ safe_panel_layout :: proc(metrics: View_Metrics) -> Safe_Panel {
 	ch := metrics.char_advance
 	row := metrics.row_height
 	pad := 2*ch
-	labels := [3]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_RESET_LABEL}
-	buttons_width := f32(len(SAFE_COPY_LABEL)+len(SAFE_EXPORT_LABEL)+len(SAFE_RESET_LABEL))*ch+2*ACTION_GAP_CELLS*ch
+	labels := SAFE_LABELS
+	buttons_width := f32(len(SAFE_COPY_LABEL)+len(SAFE_EXPORT_LABEL)+len(SAFE_DISMISS_LABEL)+len(SAFE_RESET_LABEL))*ch+3*ACTION_GAP_CELLS*ch
 	width := min(max(buttons_width, f32(len(SAFE_SUBTITLE))*ch)+2*pad, metrics.width-2*pad)
 	height := 3*row+2*pad
 	panel := draw.Rect{(metrics.width-width)/2, CHROME_HEIGHT+pad, width, height}
@@ -915,7 +917,7 @@ view_draw_safe :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, m
 	left := layout.panel.x+pad
 	view_draw_text(text, list, SAFE_TITLE, left, layout.panel.y+pad, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
 	view_draw_text(text, list, SAFE_SUBTITLE, left, layout.panel.y+pad+tree.row_height, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
-	labels := [3]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_RESET_LABEL}
+	labels := SAFE_LABELS
 	for index in 0 ..< layout.count {
 		rect := layout.buttons[index]
 		hot := index == state.hot.safe_button
