@@ -38,3 +38,17 @@ kind. Source lives at the repository root (`package file_manager`).
   release. Installed release apps check `releases/latest/download/update.json` hourly and swap
   in a staged update on quit (`update.odin`, `hw_odin_native_update`). Dev builds never update.
   Publish only when the operator asks for a specific version.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.
