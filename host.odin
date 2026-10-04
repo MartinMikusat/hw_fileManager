@@ -102,6 +102,7 @@ Window :: struct {
 	preview:        Preview,
 	preview_rect:   draw.Rect,
 	preview_shown:  bool,
+	preview_cut_off: bool,
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	shift_down:     bool,
@@ -818,6 +819,10 @@ host_render :: proc(window: ^Window) {
 	if window.tree.pan_moving {host_request_frames(window, 1)}
 	watch_follow()
 	window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics)
+	window.preview_cut_off = preview_text_cut_off(window, metrics)
+	if window.preview.focused && window.preview_cut_off {
+		window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics, true)
+	}
 	window.preview_shown = window.preview_shown && window.preview.kind != .None && !app.safe_mode
 	if !preview_text_shown(window) {window.preview.focused = false}
 	preview_scroll_to(window, window.preview.scroll)

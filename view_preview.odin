@@ -27,11 +27,12 @@ Preview_View :: struct {
 // view_preview_rect is the top-origin area the preview covers: everything left of
 // the active column's grandparent, so both ancestor levels stay visible beside it;
 // in the portrait layout only the parent stays, and the grandparent is dropped.
-view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics) -> (draw.Rect, bool) {
+// full spans the window, hiding the tree.
+view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics, full := false) -> (draw.Rect, bool) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return {}, false}
 	keep := &tree.columns[max(tree.active-(view_preview_stacked(tree, metrics) ? 1 : 2), 0)]
 	left := f32(0)
-	right := keep.x-COLUMN_PAD-1
+	right := full ? metrics.width : keep.x-COLUMN_PAD-1
 	top := CHROME_HEIGHT
 	bottom := metrics.height-metrics.bar_height
 	if right-left < 12*metrics.char_advance || bottom-top < 4*tree.row_height {return {}, false}

@@ -1,5 +1,7 @@
 package file_manager
 
+import "core:unicode/utf8"
+
 // A text preview scrolls on its own: Enter (or the right arrow) moves the focus
 // into it, the arrow, page and home/end keys then move through the file, and
 // Escape, the left or right arrow or Enter hand the focus back to the tree. The wheel
@@ -19,10 +21,23 @@ preview_scroll_to :: proc(host: ^Window, line: f32) {
 	host.preview.scroll = clamp(line, 0, limit)
 }
 
+// preview_text_cut_off reports that the narrowed preview truncates a line, so
+// focusing it (even with nothing to scroll) widens it over the tree.
+preview_text_cut_off :: proc(host: ^Window, metrics: View_Metrics) -> bool {
+	if !preview_text_shown(host) || !view_preview_stacked(&host.tree, metrics) {return false}
+	rect, ok := view_preview_rect(&host.tree, metrics)
+	if !ok {return false}
+	columns := int((rect.w-3*COLUMN_PAD)/metrics.char_advance)
+	for line in host.preview.lines {
+		if len(line) > columns && utf8.rune_count_in_string(line) > columns {return true}
+	}
+	return false
+}
+
 // preview_focus_begin focuses the preview of the selected file; it reports false
-// when there is none to focus or all of it already fits.
+// when there is none to focus, or all of it fits and is not cut off.
 preview_focus_begin :: proc(host: ^Window) -> bool {
-	if !preview_text_shown(host) || len(host.preview.lines) <= preview_rows(host) {return false}
+	if !preview_text_shown(host) || len(host.preview.lines) <= preview_rows(host) && !host.preview_cut_off {return false}
 	host.preview.focused = true
 	return true
 }
