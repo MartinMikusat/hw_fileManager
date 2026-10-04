@@ -44,6 +44,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	settings_open := false
 	shift := false
 	sort_menu := false
+	safe_mode := false
 	select_name := ""
 	gather_names: [dynamic]string
 	defer delete(gather_names)
@@ -75,6 +76,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			settings_open = true
 		case argument == "--sort-menu":
 			sort_menu = true
+		case argument == "--safe":
+			safe_mode = true
 		case argument == "--shift":
 			shift = true
 		case:
@@ -170,6 +173,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			settings = settings,
 			settings_open = settings_open,
 			sort_open = sort_menu,
+			safe_mode = safe_mode,
 			shift = shift,
 			hot = Hot_State{control = -1},
 		})

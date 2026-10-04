@@ -59,6 +59,7 @@ Hot_State :: struct {
 	settings_hot:    Settings_Hot,
 	sort_button:     bool,
 	sort_row:        int,
+	safe_button:     int,
 	action:          Action_Kind,
 	action_hot:      bool,
 }
@@ -67,6 +68,7 @@ View_State :: struct {
 	settings:         Settings,
 	settings_open:    bool,
 	sort_open:        bool,
+	safe_mode:        bool,
 	hot:              Hot_State,
 	input_mode:       Input_Mode,
 	input:            string,
@@ -102,6 +104,11 @@ CLI_CONFIRM_LABEL :: "[Confirm]"
 CLI_CANCEL_LABEL :: "[Cancel]"
 DIAG_COPY_LABEL :: "[Copy]"
 DIAG_EXPORT_LABEL :: "[Export]"
+SAFE_TITLE :: "Safe mode"
+SAFE_SUBTITLE :: "hw_fileManager crashed on its last two launches."
+SAFE_COPY_LABEL :: "[Copy diagnostics]"
+SAFE_EXPORT_LABEL :: "[Export]"
+SAFE_RESET_LABEL :: "[Reset settings]"
 
 SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
@@ -396,6 +403,40 @@ view_sort_menu_at :: proc(layout: Sort_Menu, point: ui.Vec2) -> (row: int, insid
 	if !rect_contains(layout.panel, point) {return -1, false}
 	for index in 0 ..< SORT_OPTION_COUNT {
 		if rect_contains(layout.rows[index], point) {return index, true}
+	}
+	return -1, true
+}
+
+Safe_Panel :: struct {
+	panel:   draw.Rect,
+	buttons: [3]draw.Rect,
+	count:   int,
+}
+
+// safe_panel_layout centres the recovery panel under the chrome.
+safe_panel_layout :: proc(metrics: View_Metrics) -> Safe_Panel {
+	ch := metrics.char_advance
+	row := metrics.row_height
+	pad := 2*ch
+	labels := [3]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_RESET_LABEL}
+	buttons_width := f32(len(SAFE_COPY_LABEL)+len(SAFE_EXPORT_LABEL)+len(SAFE_RESET_LABEL))*ch+2*ACTION_GAP_CELLS*ch
+	width := min(max(buttons_width, f32(len(SAFE_SUBTITLE))*ch)+2*pad, metrics.width-2*pad)
+	height := 3*row+2*pad
+	panel := draw.Rect{(metrics.width-width)/2, CHROME_HEIGHT+pad, width, height}
+	result := Safe_Panel{panel = panel, count = len(labels)}
+	cursor := panel.x+pad
+	button_top := panel.y+pad+2*row
+	for label, index in labels {
+		result.buttons[index] = {cursor, button_top, f32(len(label))*ch, row}
+		cursor += result.buttons[index].w+ACTION_GAP_CELLS*ch
+	}
+	return result
+}
+
+safe_panel_at :: proc(layout: Safe_Panel, point: ui.Vec2) -> (index: int, inside: bool) {
+	if !rect_contains(layout.panel, point) {return -1, false}
+	for button in 0 ..< layout.count {
+		if rect_contains(layout.buttons[button], point) {return button, true}
 	}
 	return -1, true
 }
@@ -845,6 +886,23 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	}
 }
 
+view_draw_safe :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
+	if !state.safe_mode {return}
+	layout := safe_panel_layout(metrics)
+	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_SELECTION_BG, edge_softness = 0)
+	pad := 2*metrics.char_advance
+	left := layout.panel.x+pad
+	view_draw_text(text, list, SAFE_TITLE, left, layout.panel.y+pad, tree.row_height, tree.font_size, COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, SAFE_SUBTITLE, left, layout.panel.y+pad+tree.row_height, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+	labels := [3]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_RESET_LABEL}
+	for index in 0 ..< layout.count {
+		rect := layout.buttons[index]
+		hot := index == state.hot.safe_button
+		if hot {draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)}
+		view_draw_text(text, list, labels[index], rect.x, rect.y, rect.h, tree.font_size, hot ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	}
+}
+
 view_draw_sort_menu :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, metrics: View_Metrics, state: View_State) {
 	if !state.sort_open {return}
 	layout := view_sort_menu_layout(tree, metrics)
@@ -1005,5 +1063,6 @@ view_draw :: proc(
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_gather(tree, list, text, metrics, state)
 	view_draw_sort_menu(tree, list, text, metrics, state)
+	view_draw_safe(tree, list, text, metrics, state)
 	view_draw_settings(tree, list, text, metrics, state.settings, state.settings_open, state.hot, state)
 }

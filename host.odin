@@ -47,6 +47,7 @@ App :: struct {
 	clip_paths:     [dynamic]string,
 	clip_cut:       bool,
 	fatal_reason:   string,
+	safe_mode:      bool,
 	cli_installed:  bool,
 	cli_confirm:    bool,
 	windows:        [dynamic]^Window,
@@ -72,6 +73,7 @@ Window :: struct {
 	hot_settings_hot:    Settings_Hot,
 	hot_sort_button:     bool,
 	hot_sort_row:        int,
+	hot_safe_button:     int,
 	sort_open:      bool,
 	settings_open:  bool,
 	settings_tab:   Settings_Tab,
@@ -358,6 +360,7 @@ app_initialize :: proc() -> bool {
 
 	app.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &app.settings)
+	app.safe_mode = safe_update_count() >= SAFE_MODE_CRASHES
 	text_tracking = f32(app.settings.letter_spacing)/10
 
 	app.device = MTL.CreateSystemDefaultDevice()
@@ -370,7 +373,7 @@ app_initialize :: proc() -> bool {
 	app.terminals = terminals_detect()
 	app.editors = editors_detect()
 	app.cli_installed = cli_installed()
-	update_start()
+	if !app.safe_mode {update_start()}
 	return true
 }
 
@@ -385,7 +388,7 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 	coretext.context_init(&window.text)
 	draw.list_init(&window.list, pixel_ratio = 2)
 	register_mono_font(&window.text)
-	font_apply(&window.text, &font_catalog, app.settings.font_family, app.settings.font_width, app.settings.font_weight)
+	font_apply(&window.text, &font_catalog, app.safe_mode ? "" : app.settings.font_family, app.safe_mode ? "" : app.settings.font_width, app.safe_mode ? "" : app.settings.font_weight)
 
 	frame := NS.Rect{{120, 120}, {WINDOW_WIDTH, WINDOW_HEIGHT}}
 	restored := false
@@ -709,7 +712,7 @@ host_render :: proc(window: ^Window) {
 	if len(notice) == 0 && update_ready() {notice = fmt.tprintf("update %s will install when you quit", updater.prepared.manifest.version)}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(window) {input_sel_start, input_sel_end = text_input.selection_bounds(&window.text_state, window.input_value)}
-	preview_update(&window.preview, &window.tree, app.device)
+	if !app.safe_mode {preview_update(&window.preview, &window.tree, app.device)}
 	frame_dt := f32(time.duration_seconds(time.tick_since(window.frame_tick)))
 	if !window.frame_animated {frame_dt = 1.0/60}
 	window.frame_tick = time.tick_now()
@@ -719,7 +722,7 @@ host_render :: proc(window: ^Window) {
 	if window.tree.pan_moving {host_request_frames(window, 1)}
 	watch_follow()
 	window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics)
-	window.preview_shown = window.preview_shown && window.preview.kind != .None
+	window.preview_shown = window.preview_shown && window.preview.kind != .None && !app.safe_mode
 	if !preview_text_shown(window) {window.preview.focused = false}
 	preview_scroll_to(window, window.preview.scroll)
 	preview_view := preview_view_make(&window.preview, &window.renderer, scale, syntax_theme(syntax_theme_index(app.settings.syntax_theme)))
@@ -736,6 +739,7 @@ host_render :: proc(window: ^Window) {
 			settings_hot = window.hot_settings_hot,
 			sort_button = window.hot_sort_button,
 			sort_row = window.hot_sort_row,
+			safe_button = window.hot_safe_button,
 			action = window.hot_action,
 			action_hot = window.hot_action_hot,
 		},
@@ -761,6 +765,7 @@ host_render :: proc(window: ^Window) {
 		notice = notice,
 		notice_error = notice_error,
 		shift = window.shift_down,
+		safe_mode = app.safe_mode,
 		cli_installed = app.cli_installed,
 		cli_confirm = app.cli_confirm,
 	})
@@ -803,6 +808,7 @@ host_update_hover :: proc(window: ^Window, point: ui.Vec2) {
 	settings_hot := Settings_Hot.None
 	sort_button := false
 	sort_row := -1
+	safe_button := -1
 	action := window.hot_action
 	action_hot := false
 	gather_row := -1
@@ -820,18 +826,22 @@ host_update_hover :: proc(window: ^Window, point: ui.Vec2) {
 		control = view_control_at(point, metrics)
 		if control < 0 {settings_button = view_settings_control_at(point, metrics)}
 		if !settings_button {sort_button = view_sort_control_at(point, &window.tree, metrics)}
+		if app.safe_mode {
+			if index, inside := safe_panel_at(safe_panel_layout(metrics), point); inside {safe_button = index}
+		}
 		gathered := len(window.gather_paths) > 0
 		if kind, inside := action_bar_at(metrics, point, gathered, action_current_gathered(window), window.shift_down); inside && action_available(&window.tree, gathered, len(app.clip_paths) > 0, kind) {
 			action = kind
 			action_hot = true
 		}
 	}
-	if control == window.hot_control && settings_button == window.hot_settings_button && settings_hot == window.hot_settings_hot && sort_button == window.hot_sort_button && sort_row == window.hot_sort_row && action == window.hot_action && action_hot == window.hot_action_hot && gather_row == window.gather_hot_row && gather_clear == window.gather_hot_clear {return}
+	if control == window.hot_control && settings_button == window.hot_settings_button && settings_hot == window.hot_settings_hot && sort_button == window.hot_sort_button && sort_row == window.hot_sort_row && safe_button == window.hot_safe_button && action == window.hot_action && action_hot == window.hot_action_hot && gather_row == window.gather_hot_row && gather_clear == window.gather_hot_clear {return}
 	window.hot_control = control
 	window.hot_settings_button = settings_button
 	window.hot_settings_hot = settings_hot
 	window.hot_sort_button = sort_button
 	window.hot_sort_row = sort_row
+	window.hot_safe_button = safe_button
 	window.hot_action = action
 	window.hot_action_hot = action_hot
 	window.gather_hot_row = gather_row
@@ -931,6 +941,23 @@ host_close_settings :: proc(window: ^Window) {
 	window.settings_open = false
 	app.cli_confirm = false
 	host_request_frames(window, 1)
+}
+
+// host_safe_reset restores default settings and clears the crash counter, so a
+// bad setting that crashes the app is left behind.
+host_safe_reset :: proc(window: ^Window) {
+	delete(app.settings.place)
+	delete(app.settings.terminal)
+	delete(app.settings.editor)
+	delete(app.settings.syntax_theme)
+	delete(app.settings.font_family)
+	delete(app.settings.font_weight)
+	delete(app.settings.font_width)
+	app.settings = settings_defaults()
+	safe_clear()
+	app.safe_mode = false
+	host_apply_font()
+	notice_set(window, "settings reset to defaults")
 }
 
 host_reveal_path :: proc(path: string) {
@@ -1243,6 +1270,16 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			host_request_frames(window, 2)
 		}
 		return
+	}
+	if app.safe_mode {
+		if index, inside := safe_panel_at(safe_panel_layout(metrics), point); inside {
+			switch index {
+			case 0: host_diagnostics_copy(window)
+			case 1: host_diagnostics_export(window)
+			case 2: host_safe_reset(window)
+			}
+			return
+		}
 	}
 	if len(window.gather_paths) > 0 {
 		layout := gather_panel_layout(metrics, len(window.gather_paths))
