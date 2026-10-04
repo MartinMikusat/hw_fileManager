@@ -182,6 +182,11 @@ update_finish :: proc() {
 	updater.thread = nil
 	if updater.prepared.status == .Ready {
 		site := devlog.Site{feature = "updater", operation = "apply"}
+		devlog.started(devlog.global(), site)
+		// The swap replaces the running bundle, which ends this process before the
+		// normal clean-shutdown path runs. Drop the crash marker now, so an update
+		// quit is never counted as a crash and cannot trip safe mode.
+		if state := devlog.global(); state != nil {_ = os.remove(state.marker_path)}
 		if message := native_update.apply(update_config(), &updater.prepared, updater.installed_app); message != "" {
 			devlog.failed(devlog.global(), site, {reason = message, severity = .Warning})
 		} else {
