@@ -19,6 +19,7 @@ Action_Kind :: enum {
 	Clear,
 	Terminal,
 	Refresh,
+	NewWindow,
 	Open,
 }
 
@@ -39,6 +40,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Clear:   return GATHER_CLEAR_LABEL
 	case .Terminal: return "[9 Terminal]"
 	case .Refresh: return "[⌘R Refresh]"
+	case .NewWindow: return "[⌘N Window]"
 	case .Open:    return "[0 Open]"
 	}
 	return ""
@@ -78,7 +80,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 		return ok
 	case .Paste:
 		return has_clip
-	case .Refresh:
+	case .Refresh, .NewWindow:
 		return true
 	case .Open:
 		entry, ok := tree_selected_entry(tree)
@@ -91,7 +93,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 	return false
 }
 
-ACTION_MAX :: 10
+ACTION_MAX :: 12
 
 Action_Bar :: struct {
 	kinds: [ACTION_MAX]Action_Kind,
@@ -114,8 +116,13 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 	}
 	// Shortcuts that already have a key sit at the right edge, without a number.
 	refresh_width := label_cells(action_label(.Refresh))*metrics.char_advance
+	refresh_x := metrics.width-COLUMN_PAD-refresh_width
 	bar.kinds[bar.count] = .Refresh
-	bar.rects[bar.count] = {metrics.width-COLUMN_PAD-refresh_width, top, refresh_width, metrics.row_height}
+	bar.rects[bar.count] = {refresh_x, top, refresh_width, metrics.row_height}
+	bar.count += 1
+	new_window_width := label_cells(action_label(.NewWindow))*metrics.char_advance
+	bar.kinds[bar.count] = .NewWindow
+	bar.rects[bar.count] = {refresh_x-ACTION_GAP_CELLS*metrics.char_advance-new_window_width, top, new_window_width, metrics.row_height}
 	bar.count += 1
 	return bar
 }
@@ -150,6 +157,7 @@ action_perform :: proc(host: ^Window, kind: Action_Kind, shift := false) {
 	case .Clear:   gather_clear(&host.gather_paths)
 	case .Terminal: action_terminal(host)
 	case .Refresh: _ = tree_refresh(&host.tree)
+	case .NewWindow: host_new_window(host)
 	case .Open:    action_open(host)
 	}
 	host_request_frames(host, 2)
