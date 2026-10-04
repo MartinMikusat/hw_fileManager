@@ -95,3 +95,41 @@ search_jump_into_the_leftmost_column_keeps_its_parent_visible :: proc(t: ^testin
 	selected := host.tree.columns[1].entries[host.tree.columns[1].selected]
 	testing.expect_value(t, selected.name, "beta")
 }
+
+@(test)
+search_chosen_folder_is_a_committed_matched_directory :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Window
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer input_destroy(&host)
+	search_layout(&host)
+	testing.expect(t, tree_open(&host.tree, TREE_FIXTURE_ROOT+"/alpha"))
+
+	host.input_mode = .Search
+	host.search_committed = true
+	append_query(&host, "nested")
+	search_commit(&host)
+	if path, ok := search_chosen_folder(&host); testing.expect(t, ok) {
+		testing.expect(t, strings.has_suffix(path, "/alpha/nested"))
+	}
+
+	// Nothing is chosen until the search is committed.
+	host.search_committed = false
+	_, ok := search_chosen_folder(&host)
+	testing.expect(t, !ok)
+
+	// The selected folder must be what the query matched.
+	host.search_committed = true
+	append_query(&host, "zzz")
+	_, ok = search_chosen_folder(&host)
+	testing.expect(t, !ok)
+
+	// A matched file is not a folder.
+	append_query(&host, "one")
+	search_commit(&host)
+	_, ok = search_chosen_folder(&host)
+	testing.expect(t, !ok)
+}

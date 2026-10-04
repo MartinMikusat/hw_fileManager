@@ -1220,6 +1220,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			search_refresh(window)
 		}
 	case key == 53:
+		if path, ok := search_chosen_folder(window); ok {cd_remember(app.zoxide, path)}
 		input_reset(window)
 	case key == 126:
 		if window.input_mode == .Cd {input_history_move(window, 1)} else {_ = tree_move(&window.tree, -1)}

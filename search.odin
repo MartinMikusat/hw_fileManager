@@ -175,3 +175,13 @@ search_refresh :: proc(host: ^Window) {
 search_next :: proc(host: ^Window, delta: int) {
 	search_step(host, delta, false)
 }
+
+// search_chosen_folder is the folder a committed search ended on, for zoxide
+// memory: the selected entry when it is a directory the query matched.
+search_chosen_folder :: proc(host: ^Window) -> (string, bool) {
+	if !host.search_committed {return "", false}
+	entry, ok := tree_selected_entry(&host.tree)
+	if !ok || !entry.is_dir {return "", false}
+	if !search_matches(entry, input_text(host)) {return "", false}
+	return entry.path, true
+}
