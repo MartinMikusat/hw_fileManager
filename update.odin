@@ -120,6 +120,8 @@ update_worker :: proc(_: ^thread.Thread) {
 	for !update_cancelled() {
 		manual := intrinsics.atomic_exchange(&updater.check_requested, false)
 		prepared := update_attempt()
+		// A request that arrived during the attempt is answered by its result.
+		manual = manual || intrinsics.atomic_exchange(&updater.check_requested, false)
 		switch prepared.status {
 		case .Ready:
 			updater.prepared = prepared
@@ -186,8 +188,11 @@ update_finish :: proc() {
 		// The swap replaces the running bundle, which ends this process before the
 		// normal clean-shutdown path runs. Drop the crash marker now, so an update
 		// quit is never counted as a crash and cannot trip safe mode.
-		if state := devlog.global(); state != nil {_ = os.remove(state.marker_path)}
+		state := devlog.global()
+		if state != nil {_ = os.remove(state.marker_path)}
 		if message := native_update.apply(update_config(), &updater.prepared, updater.installed_app); message != "" {
+			// The app keeps running to the end of its quit, so it is crash-tracked again.
+			if state != nil {_ = os.write_entire_file(state.marker_path, transmute([]byte)state.session)}
 			devlog.failed(devlog.global(), site, {reason = message, severity = .Warning})
 		} else {
 			devlog.succeeded(devlog.global(), site)

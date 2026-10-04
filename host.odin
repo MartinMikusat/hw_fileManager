@@ -115,11 +115,24 @@ Window :: struct {
 	ephemeral:      bool,
 }
 
+// Startup failure reasons; host_friendly_reason maps them to user-facing text.
+FAIL_COCOA_CLASSES :: "Cocoa classes could not be registered"
+FAIL_WINDOW_CLASS :: "window class could not be registered"
+FAIL_METAL_DEVICE :: "Metal device is unavailable"
+FAIL_WINDOW_CREATE :: "window could not be created"
+FAIL_DISPLAY_LINK :: "the macOS 14 display link API is unavailable"
+FAIL_START_DIRECTORY :: "no readable starting directory"
+
 app: App
+
+font_checked: bool
 
 register_mono_font :: proc(text: ^coretext.Context) {
 	assert(font_register(), "embedded Iosevka must register; no silent substitute")
-	assert(font_resolves(), "FONT_NAME must resolve to the embedded face; a wrong PostScript name falls back silently")
+	if !font_checked {
+		font_checked = true
+		assert(font_resolves(), "FONT_NAME must resolve to the embedded face; a wrong PostScript name falls back silently")
+	}
 	coretext.register_font(text, FONT_MONO, FONT_NAME)
 }
 
@@ -167,13 +180,13 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 // can act on; the raw reason is shown underneath it.
 host_friendly_reason :: proc(reason: string) -> string {
 	switch reason {
-	case "the macOS 14 display link API is unavailable":
+	case FAIL_DISPLAY_LINK:
 		return "This app needs macOS 14 (Sonoma) or later."
-	case "Metal device is unavailable":
+	case FAIL_METAL_DEVICE:
 		return "This Mac's graphics device could not be used."
-	case "no readable starting directory":
+	case FAIL_START_DIRECTORY:
 		return "No folder could be opened to start from."
-	case "Cocoa classes could not be registered", "window class could not be registered", "window could not be created":
+	case FAIL_COCOA_CLASSES, FAIL_WINDOW_CLASS, FAIL_WINDOW_CREATE:
 		return "A required macOS component could not be set up."
 	}
 	return "The app hit an unexpected problem while starting."
@@ -426,14 +439,14 @@ app_initialize :: proc() -> bool {
 	delegate_class, view_class, ok := host_register_classes()
 	if !ok {
 		fmt.eprintln("[hw_fileManager] could not register the Cocoa classes")
-		host_failure("Cocoa classes could not be registered", .Critical)
+		host_failure(FAIL_COCOA_CLASSES, .Critical)
 		return false
 	}
 	app.delegate_class = delegate_class
 	app.view_class = view_class
 	app.window_class = host_window_class()
 	if app.window_class == nil {
-		host_failure("window class could not be registered", .Critical)
+		host_failure(FAIL_WINDOW_CLASS, .Critical)
 		return false
 	}
 	app.delegate = host_new_delegate()
@@ -448,7 +461,7 @@ app_initialize :: proc() -> bool {
 
 	app.device = MTL.CreateSystemDefaultDevice()
 	if app.device == nil {
-		host_failure("Metal device is unavailable", .Critical)
+		host_failure(FAIL_METAL_DEVICE, .Critical)
 		return false
 	}
 	app.queue = app.device->newCommandQueue()
@@ -486,8 +499,8 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 	window.ns_window = window.ns_window->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
 	window.ns_window->setReleasedWhenClosed(false)
 	if window.ns_window == nil {
-		host_failure("window could not be created", .Critical)
-		devlog.failed(devlog.global(), site, {reason = "window could not be created"})
+		host_failure(FAIL_WINDOW_CREATE, .Critical)
+		devlog.failed(devlog.global(), site, {reason = FAIL_WINDOW_CREATE})
 		window_destroy(window)
 		return nil
 	}
@@ -526,8 +539,8 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 		"fileManagerFrame:",
 	) {
 		fmt.eprintln("[hw_fileManager] the macOS 14 display link API is required")
-		host_failure("the macOS 14 display link API is unavailable", .Critical)
-		devlog.failed(devlog.global(), site, {reason = "the macOS 14 display link API is unavailable"})
+		host_failure(FAIL_DISPLAY_LINK, .Critical)
+		devlog.failed(devlog.global(), site, {reason = FAIL_DISPLAY_LINK})
 		window_destroy(window)
 		return nil
 	}
@@ -634,7 +647,7 @@ host_open_home :: proc(window: ^Window) -> bool {
 	if !tree_open(&window.tree, home_directory(), grandparent = true) {
 		if !tree_open(&window.tree, "/", grandparent = true) {
 			fmt.eprintln("[hw_fileManager] no readable starting directory")
-			host_failure("no readable starting directory", .Critical)
+			host_failure(FAIL_START_DIRECTORY, .Critical)
 			return false
 		}
 		devlog.recovered(devlog.global(), {feature = "files", operation = "open_starting_directory"})
@@ -1043,6 +1056,7 @@ host_safe_reset :: proc(window: ^Window) {
 	app.settings = settings_defaults()
 	diag.safe_clear(diagnostics_config().app_name)
 	app.safe_mode = false
+	update_start()
 	host_apply_font()
 	notice_set(window, "settings reset to defaults")
 }
