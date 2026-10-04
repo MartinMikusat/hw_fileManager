@@ -10,6 +10,12 @@ app_exit :: proc(status: int) {
 }
 
 main :: proc() {
+	// Handled before the journal opens: the crash marker must survive so the next
+	// real launch still knows the app crashed.
+	if len(os.args) > 1 && os.args[1] == "--diagnostics" {
+		if !run_diagnostics(os.args[2:]) {os.exit(2)}
+		os.exit(0)
+	}
 	config := devlog.DEFAULT_CONFIG
 	config.profile = devlog.profile_from_env()
 	if devlog.global_start(devlog.default_directory("hw_fileManager", "app", context.temp_allocator), config) {
