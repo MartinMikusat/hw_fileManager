@@ -222,10 +222,87 @@ window_for_delegate :: proc(delegate: NS.id) -> ^Window {
 	return nil
 }
 
-// host_update_ready runs on the main thread when the update worker has staged a release.
+// host_key_window is the focused window, or the first one when none is focused.
+host_key_window :: proc() -> ^Window {
+	key := intrinsics.objc_send(^NS.Window, cast(^NS.Object)intrinsics.objc_find_class("NSWindow"), "keyWindow")
+	if key != nil {
+		for window in app.windows {if window.ns_window == key {return window}}
+	}
+	if len(app.windows) > 0 {return app.windows[0]}
+	return nil
+}
+
+// host_build_menu gives the app the usual macOS menu: about, a manual update
+// check, settings, hide and quit. Without it the app menu is empty.
+host_build_menu :: proc() {
+	application := app.application
+	if application == nil {return}
+	ns_menu :: proc() -> ^NS.Object {return intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSMenu"), "new")}
+	ns_item :: proc() -> ^NS.Object {return intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSMenuItem"), "new")}
+
+	menubar := ns_menu()
+	app_item := ns_item()
+	app_menu := NS.Menu_initWithTitle(NS.Menu_alloc(), edit_nsstring("hw_fileManager"))
+
+	// add uses the same addItemWithTitle:action:keyEquivalent: the other apps use;
+	// a nil target routes standard selectors (terminate:, hide:) through the app.
+	add :: proc(menu: ^NS.Menu, title: string, selector: cstring, key: string, target: ^NS.Object) {
+		item := intrinsics.objc_send(^NS.Object, menu, "addItemWithTitle:action:keyEquivalent:", edit_nsstring(title), NS.sel_registerName(selector), edit_nsstring(key))
+		if target != nil {intrinsics.objc_send(nil, item, "setTarget:", target)}
+	}
+	add(app_menu, "About hw_fileManager", "orderFrontStandardAboutPanel:", "", nil)
+	add(app_menu, "Check for Updates…", "fileManagerCheckForUpdates:", "", (^NS.Object)(app.delegate))
+	add(app_menu, "Settings…", "fileManagerOpenSettings:", ",", (^NS.Object)(app.delegate))
+	intrinsics.objc_send(nil, app_menu, "addItem:", NS.MenuItem_separatorItem())
+	add(app_menu, "Hide hw_fileManager", "hide:", "h", nil)
+	add(app_menu, "Quit hw_fileManager", "terminate:", "q", nil)
+	intrinsics.objc_send(nil, app_item, "setSubmenu:", app_menu)
+	intrinsics.objc_send(nil, menubar, "addItem:", app_item)
+	intrinsics.objc_send(nil, application, "setMainMenu:", menubar)
+}
+
+// host_update_ready runs on the main thread when the update worker has staged a
+// release, or finished a user-requested check that found nothing.
 host_update_ready :: proc "c" (self: NS.id, cmd: NS.SEL, object: NS.id) {
 	context = runtime.default_context()
+	if !update_ready() {
+		switch update_manual_result() {
+		case .Up_To_Date:
+			if window := host_key_window(); window != nil {notice_set(window, "you're up to date")}
+		case .Error:
+			if window := host_key_window(); window != nil {notice_set(window, "couldn't check for updates")}
+		case .None:
+		}
+		update_manual_clear()
+	}
 	for window in app.windows {host_request_frames(window, 2)}
+}
+
+// host_manual_update_check is the Check for Updates… menu item.
+host_manual_update_check :: proc() {
+	window := host_key_window()
+	if update_ready() {
+		if window != nil {notice_set(window, "an update is ready; quit to install")}
+		return
+	}
+	if !update_request_check() {
+		if window != nil {notice_set(window, "update checks are unavailable in this build")}
+		return
+	}
+	if window != nil {notice_set(window, "checking for updates…")}
+	for w in app.windows {host_request_frames(w, 2)}
+}
+
+host_check_updates :: proc "c" (self: NS.id, cmd: NS.SEL, sender: NS.id) {
+	context = runtime.default_context()
+	host_manual_update_check()
+}
+
+host_open_settings_menu :: proc "c" (self: NS.id, cmd: NS.SEL, sender: NS.id) {
+	context = runtime.default_context()
+	window := host_key_window()
+	if window == nil {return}
+	host_open_settings(window)
 }
 
 host_did_become_active :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
@@ -272,6 +349,8 @@ host_focus_window_menu :: proc "c" (self: NS.id, cmd: NS.SEL, sender: ^NS.MenuIt
 // event from `hfm` (which arrives during launch) wins and we do not open both.
 host_did_finish_launching :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
 	context = runtime.default_context()
+	// Set after launch: AppKit replaces the main menu while finishing the launch.
+	host_build_menu()
 	intrinsics.objc_send(nil, app.delegate, "performSelector:withObject:afterDelay:", NS.sel_registerName("fileManagerCreateDefaultWindow:"), NS.id(nil), f64(0))
 }
 
@@ -310,6 +389,8 @@ host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bo
 	if !host_add_method(delegate_class, "applicationShouldTerminateAfterLastWindowClosed:", rawptr(host_should_terminate), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationWillTerminate:", rawptr(host_persist_state), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerUpdateReady:", rawptr(host_update_ready), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerCheckForUpdates:", rawptr(host_check_updates), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "fileManagerOpenSettings:", rawptr(host_open_settings_menu), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationDockMenu:", rawptr(host_dock_menu), "@@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerFocusWindow:", rawptr(host_focus_window_menu), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "applicationDidBecomeActive:", rawptr(host_did_become_active), "v@:@") {return nil, nil, false}

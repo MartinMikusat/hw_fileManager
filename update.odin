@@ -26,15 +26,25 @@ UPDATE_BUNDLE_NAME :: "hw_fileManager.app"
 UPDATE_INTERVAL :: time.Hour
 UPDATE_POLL :: 200 * time.Millisecond
 
+// Manual_Result is what the last user-requested check found, so the menu item can
+// report it without the worker touching the UI.
+Manual_Result :: enum u32 {
+	None,
+	Up_To_Date,
+	Error,
+}
+
 // Updater checks for a newer release in the background and stages it; the staged
 // bundle replaces the installed app when the app quits, so a running session
 // never changes under the user.
 Updater :: struct {
-	thread:        ^thread.Thread,
-	cancel:        bool,
-	ready:         bool,
-	prepared:      native_update.Prepared,
-	installed_app: string,
+	thread:          ^thread.Thread,
+	cancel:          bool,
+	ready:           bool,
+	check_requested: bool,
+	manual_result:   Manual_Result,
+	prepared:        native_update.Prepared,
+	installed_app:   string,
 }
 
 updater: Updater
@@ -72,31 +82,62 @@ update_cancelled :: proc() -> bool {
 	return intrinsics.atomic_load(&updater.cancel)
 }
 
-// update_wait sleeps in short steps so quitting never waits for the interval.
+// update_request_check wakes the worker for an immediate check; it reports false
+// when no worker is running (a dev build, or the app run outside /Applications).
+update_request_check :: proc() -> bool {
+	if updater.thread == nil {return false}
+	intrinsics.atomic_store(&updater.check_requested, true)
+	return true
+}
+
+update_manual_result :: proc() -> Manual_Result {
+	return intrinsics.atomic_load(&updater.manual_result)
+}
+
+update_manual_clear :: proc() {
+	intrinsics.atomic_store(&updater.manual_result, Manual_Result.None)
+}
+
+// update_wait sleeps in short steps so quitting never waits for the interval and a
+// requested check starts at once.
 update_wait :: proc(duration: time.Duration) {
 	for waited: time.Duration; waited < duration && !update_cancelled(); waited += UPDATE_POLL {
+		if intrinsics.atomic_load(&updater.check_requested) {return}
 		time.sleep(UPDATE_POLL)
 	}
+}
+
+// update_notify wakes the main thread; the worker never touches UI state.
+update_notify :: proc() {
+	pool := NS.scoped_autoreleasepool()
+	_ = pool
+	intrinsics.objc_send(nil, app.delegate, "performSelectorOnMainThread:withObject:waitUntilDone:", NS.sel_registerName("fileManagerUpdateReady:"), NS.id(nil), NS.BOOL(false))
 }
 
 update_worker :: proc(_: ^thread.Thread) {
 	context = runtime.default_context()
 	site := devlog.Site{feature = "updater", operation = "check"}
 	for !update_cancelled() {
+		manual := intrinsics.atomic_exchange(&updater.check_requested, false)
 		prepared := update_attempt()
 		switch prepared.status {
 		case .Ready:
 			updater.prepared = prepared
 			devlog.succeeded(devlog.global(), site, {stage = "ready"})
 			intrinsics.atomic_store(&updater.ready, true)
-			// The window is idle between events, so wake it to show the notice.
-			pool := NS.scoped_autoreleasepool()
-			_ = pool
-			intrinsics.objc_send(nil, app.delegate, "performSelectorOnMainThread:withObject:waitUntilDone:", NS.sel_registerName("fileManagerUpdateReady:"), NS.id(nil), NS.BOOL(false))
+			update_notify()
 			return
 		case .Error:
 			devlog.failed(devlog.global(), site, {reason = prepared.error, severity = .Warning})
+			if manual {
+				intrinsics.atomic_store(&updater.manual_result, Manual_Result.Error)
+				update_notify()
+			}
 		case .Up_To_Date, .Idle, .Checking:
+			if manual {
+				intrinsics.atomic_store(&updater.manual_result, Manual_Result.Up_To_Date)
+				update_notify()
+			}
 		}
 		native_update.discard(&prepared)
 		delete(prepared.root)
