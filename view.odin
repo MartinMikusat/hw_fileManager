@@ -275,6 +275,13 @@ view_pan_x_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return tree.pan_x}
 	left := COLUMN_PAD
 	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
+	if view_preview_stacked(tree, metrics) {
+		// Portrait: the active column and the folders beside it sit flush right.
+		active := &tree.columns[tree.active]
+		right := left+active.width
+		if view_trail_shown(active) {right += COLUMN_GAP+COLUMN_PAD+view_trail_chars(active)*metrics.char_advance}
+		return metrics.width-COLUMN_PAD-right
+	}
 	return metrics.width/2-left
 }
 
@@ -706,14 +713,28 @@ view_trail_shown :: proc(column: ^Column) -> bool {
 	return len(column.trail) > 0 && column.selected >= 0 && !column.entries[column.selected].is_dir
 }
 
-// view_draw_trail draws the folders above a selected file to the right of its column.
-view_draw_trail :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
-	column := &tree.columns[index]
-	if !view_trail_shown(column) {return}
+// view_trail_chars is the width in cells of the widest name in a column's trail.
+view_trail_chars :: proc(column: ^Column) -> f32 {
 	longest := 0
 	for block in column.trail {
 		for entry in block.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
 	}
+	return f32(longest)
+}
+
+// view_preview_stacked reports the portrait layout: with a file selected in a
+// window taller than wide, the preview takes the left and the tree moves right.
+view_preview_stacked :: proc(tree: ^Tree, metrics: View_Metrics) -> bool {
+	if metrics.height <= metrics.width {return false}
+	entry, ok := tree_selected_entry(tree)
+	return ok && !entry.is_dir
+}
+
+// view_draw_trail draws the folders above a selected file to the right of its column.
+view_draw_trail :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
+	column := &tree.columns[index]
+	if !view_trail_shown(column) {return}
+	longest := int(view_trail_chars(column))
 	x := column.x+column.width+COLUMN_GAP
 	top := CHROME_HEIGHT
 	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
