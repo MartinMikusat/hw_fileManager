@@ -43,6 +43,8 @@ Settings_Hot :: enum {
 	WidthNext,
 	CliAction,
 	CliCancel,
+	DiagCopy,
+	DiagExport,
 }
 
 Settings_Tab :: enum {
@@ -98,6 +100,8 @@ CLI_INSTALL_LABEL :: "[Install]"
 CLI_REMOVE_LABEL :: "[Remove]"
 CLI_CONFIRM_LABEL :: "[Confirm]"
 CLI_CANCEL_LABEL :: "[Cancel]"
+DIAG_COPY_LABEL :: "[Copy]"
+DIAG_EXPORT_LABEL :: "[Export]"
 
 SETTINGS_LABEL :: "[⌘, Settings]"
 MINUS_LABEL :: "[-]"
@@ -121,6 +125,7 @@ Settings_Row :: enum {
 	Editor,
 	Syntax,
 	CommandLine,
+	Diagnostics,
 }
 
 Settings_Control :: struct {
@@ -400,7 +405,7 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 	row := tree.row_height
 	pad := 2*ch
 	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
-	height := 9*row+2*pad
+	height := 10*row+2*pad
 	layout := Settings_Layout{}
 	layout.panel = draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	layout.title_top = layout.panel.y+pad
@@ -443,8 +448,9 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 		layout.tops[.Editor] = first+2*row
 		layout.tops[.Syntax] = first+3*row
 		layout.tops[.CommandLine] = first+4*row
-		layout.cli_hint_top = first+5*row
-		layout.hint_top = first+6*row
+		layout.tops[.Diagnostics] = first+5*row
+		layout.cli_hint_top = first+6*row
+		layout.hint_top = first+7*row
 		stepper(&layout, layout.tops[.Terminal], right, button, ch, row, .Previous, .Next, {PREVIOUS_LABEL, NEXT_LABEL}, .Terminal)
 		add(&layout, {right-5*ch, layout.tops[.Animations], 5*ch, row}, .Animations, "", .Animations)
 		stepper(&layout, layout.tops[.Editor], right, button, ch, row, .EditorPrevious, .EditorNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Editor)
@@ -453,6 +459,10 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 		cli_action := f32(len(CLI_CONFIRM_LABEL))*ch
 		add(&layout, {right-cli_action, layout.tops[.CommandLine], cli_action, row}, .CliAction, CLI_INSTALL_LABEL, .CommandLine)
 		add(&layout, {right-cli_action-ch-f32(len(CLI_CANCEL_LABEL))*ch, layout.tops[.CommandLine], f32(len(CLI_CANCEL_LABEL))*ch, row}, .CliCancel, CLI_CANCEL_LABEL, .CommandLine)
+		export_width := f32(len(DIAG_EXPORT_LABEL))*ch
+		copy_width := f32(len(DIAG_COPY_LABEL))*ch
+		add(&layout, {right-export_width, layout.tops[.Diagnostics], export_width, row}, .DiagExport, DIAG_EXPORT_LABEL, .Diagnostics)
+		add(&layout, {right-export_width-ch-copy_width, layout.tops[.Diagnostics], copy_width, row}, .DiagCopy, DIAG_COPY_LABEL, .Diagnostics)
 	}
 	return layout
 }
@@ -910,6 +920,7 @@ view_draw_settings :: proc(
 		case .Editor:     return fmt.tprintf("Text editor: %s", editor_label(settings.editor))
 		case .Syntax:     return fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)])
 		case .CommandLine: return "Command line tool"
+		case .Diagnostics: return "Diagnostics"
 		}
 		return ""
 	}
@@ -922,7 +933,7 @@ view_draw_settings :: proc(
 		return false
 	}
 
-	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax, .CommandLine}
+	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax, .CommandLine, .Diagnostics}
 	for row in rows_shown {
 		// The label yields to the row's controls.
 		limit := layout.panel.x+layout.panel.w

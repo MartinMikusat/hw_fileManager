@@ -46,6 +46,7 @@ App :: struct {
 	editors:        Editors,
 	clip_paths:     [dynamic]string,
 	clip_cut:       bool,
+	fatal_reason:   string,
 	cli_installed:  bool,
 	cli_confirm:    bool,
 	windows:        [dynamic]^Window,
@@ -152,6 +153,45 @@ host_failure :: proc(reason: string, severity := devlog.Severity.Error) {
 		reason = reason,
 		severity = severity,
 	})
+	if severity == .Critical {
+		delete(app.fatal_reason)
+		app.fatal_reason = strings.clone(reason)
+	}
+}
+
+// host_friendly_reason turns a startup failure into a line a non-technical user
+// can act on; the raw reason is shown underneath it.
+host_friendly_reason :: proc(reason: string) -> string {
+	switch reason {
+	case "the macOS 14 display link API is unavailable":
+		return "This app needs macOS 14 (Sonoma) or later."
+	case "Metal device is unavailable":
+		return "This Mac's graphics device could not be used."
+	case "no readable starting directory":
+		return "No folder could be opened to start from."
+	case "Cocoa classes could not be registered", "window class could not be registered", "window could not be created":
+		return "A required macOS component could not be set up."
+	}
+	return "The app hit an unexpected problem while starting."
+}
+
+// host_fatal_alert shows the reason the app could not start and offers to copy
+// the full diagnostics report before it exits.
+host_fatal_alert :: proc() {
+	_ = NS.Application.sharedApplication()
+	reason := len(app.fatal_reason) > 0 ? app.fatal_reason : "the app could not start"
+	alert := intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSAlert"), "new")
+	if alert == nil {return}
+	intrinsics.objc_send(nil, alert, "setMessageText:", edit_nsstring("hw_fileManager could not start"))
+	intrinsics.objc_send(nil, alert, "setInformativeText:", edit_nsstring(fmt.tprintf("%s\n\n%s", host_friendly_reason(reason), reason)))
+	_ = intrinsics.objc_send(^NS.Object, alert, "addButtonWithTitle:", edit_nsstring("Copy details"))
+	_ = intrinsics.objc_send(^NS.Object, alert, "addButtonWithTitle:", edit_nsstring("Quit"))
+	if intrinsics.objc_send(i64, alert, "runModal") == 1000 {
+		text := report_build(report_directory(context.temp_allocator), context.allocator)
+		defer delete(text, context.allocator)
+		_ = report_copy_to_clipboard(text)
+	}
+	intrinsics.objc_send(nil, alert, "release")
 }
 
 notice_set :: proc(window: ^Window, text: string) {
@@ -893,6 +933,38 @@ host_close_settings :: proc(window: ^Window) {
 	host_request_frames(window, 1)
 }
 
+host_reveal_path :: proc(path: string) {
+	_, stdout, stderr, _ := os.process_exec(os.Process_Desc{command = []string{"/usr/bin/open", "-R", path}}, context.allocator)
+	delete(stdout)
+	delete(stderr)
+}
+
+// host_diagnostics_copy puts the redacted report on the clipboard for pasting
+// into an email or a GitHub issue.
+host_diagnostics_copy :: proc(window: ^Window) {
+	text := report_build(report_directory(context.temp_allocator), context.allocator)
+	defer delete(text, context.allocator)
+	if report_copy_to_clipboard(text) {
+		notice_set(window, "diagnostics copied to the clipboard")
+	} else {
+		notice_set(window, "could not copy diagnostics")
+	}
+	host_request_frames(window, 2)
+}
+
+// host_diagnostics_export writes the report next to the user and reveals it.
+host_diagnostics_export :: proc(window: ^Window) {
+	path := report_default_path(context.allocator)
+	defer delete(path, context.allocator)
+	if report_write_file(path) {
+		host_reveal_path(path)
+		notice_set(window, "diagnostics written to the Desktop")
+	} else {
+		notice_set(window, "could not write diagnostics")
+	}
+	host_request_frames(window, 2)
+}
+
 // host_cli_action installs the shim, or arms then performs its removal.
 host_cli_action :: proc(window: ^Window) {
 	if !app.cli_installed {
@@ -1118,6 +1190,10 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		} else if hot == .CliCancel {
 			app.cli_confirm = false
 			host_request_frames(window, 2)
+		} else if hot == .DiagCopy {
+			host_diagnostics_copy(window)
+		} else if hot == .DiagExport {
+			host_diagnostics_export(window)
 		} else if hot == .Minus {
 			host_settings_adjust(-1)
 		} else if hot == .Plus {
@@ -1464,7 +1540,10 @@ host_enter :: proc(window: ^Window) {
 }
 
 host_run :: proc() -> bool {
-	if !app_initialize() {return false}
+	if !app_initialize() {
+		host_fatal_alert()
+		return false
+	}
 	defer app_shutdown()
 	devlog.started(devlog.global(), {feature = "app", operation = "presentation"})
 	// The first window is created by applicationDidFinishLaunching, so an hfm
