@@ -454,6 +454,7 @@ app_initialize :: proc() -> bool {
 	app.application = NS.Application.sharedApplication()
 	app.application->setActivationPolicy(.Regular)
 	app.application->setDelegate((^NS.ApplicationDelegate)(app.delegate))
+	quit_on_sigterm()
 
 	app.settings = settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &app.settings)
