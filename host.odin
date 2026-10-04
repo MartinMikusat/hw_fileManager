@@ -368,7 +368,7 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 	window.ns_window->setMinSize({WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT})
 	window.ns_window->setAcceptsMouseMovedEvents(true)
 	window.ns_window->setDelegate((^NS.WindowDelegate)(window.delegate))
-	if !restored {window.ns_window->center()}
+	if !restored && !ephemeral {window.ns_window->center()}
 
 	window.view = (^NS.View)(NS.class_createInstance(app.view_class, 0))
 	window.view = window.view->initWithFrame({{0, 0}, frame.size})
@@ -427,6 +427,7 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 	}
 	window.initialized = true
 	append(&app.windows, window)
+	if ephemeral {host_place_new_window(window, len(app.windows)-1)}
 	window.ns_window->makeKeyAndOrderFront(nil)
 	app.application->activateIgnoringOtherApps(true)
 	host_request_frames(window, 3)
@@ -1424,12 +1425,27 @@ host_new_window :: proc(source: ^Window) -> ^Window {
 	if source != nil {
 		if entry, ok := tree_selected_entry(&source.tree); ok && entry.is_dir {start = entry.path} else {start = source.tree.columns[source.tree.active].dir}
 	}
-	window := window_create(start, ephemeral = true)
-	if window != nil && source != nil && source.ns_window != nil {
-		frame := source.ns_window->frame()
-		window.ns_window->setFrameOrigin({frame.origin.x+32, frame.origin.y-32})
-	}
-	return window
+	return window_create(start, ephemeral = true)
+}
+
+// host_place_new_window puts an ephemeral window on the right of the screen,
+// vertically centered, cascaded so stacked windows stay distinct, and clamped so
+// it never lands under the menu bar or off the edge.
+host_place_new_window :: proc(window: ^Window, cascade: int) {
+	screen := NS.Screen_mainScreen()
+	if screen == nil || window.ns_window == nil {return}
+	visible := screen->visibleFrame()
+	frame := window.ns_window->frame()
+	step := NS.Float(24*(cascade % 6))
+	x := visible.origin.x+visible.size.width-frame.size.width-NS.Float(24)-step
+	y := visible.origin.y+(visible.size.height-frame.size.height)/2-step
+	max_x := visible.origin.x+visible.size.width-frame.size.width
+	max_y := visible.origin.y+visible.size.height-frame.size.height
+	if x < visible.origin.x {x = visible.origin.x}
+	if x > max_x {x = max_x}
+	if y < visible.origin.y {y = visible.origin.y}
+	if y > max_y {y = max_y}
+	window.ns_window->setFrameOrigin({x, y})
 }
 
 // host_enter opens the selection: folders open as columns, text files take the
