@@ -37,6 +37,7 @@ App :: struct {
 	delegate:       ^NS.Object,
 	delegate_class: NS.Class,
 	view_class:     NS.Class,
+	window_class:   NS.Class,
 	device:         ^MTL.Device,
 	queue:          ^MTL.CommandQueue,
 	settings:       Settings,
@@ -138,7 +139,6 @@ host_window_key :: proc "c" (self: NS.id, cmd: NS.SEL) -> bool {return true}
 // A window without a title bar cannot become key by default, so the first
 // responder never receives keyboard events unless it opts in.
 host_window_class :: proc() -> NS.Class {
-	if existing := intrinsics.objc_find_class("FileManagerWindow"); existing != nil {return existing}
 	class := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSWindow"), "FileManagerWindow", 0)
 	if class == nil {return nil}
 	if !host_add_method(class, "canBecomeKeyWindow", rawptr(host_window_key), "B@:") {return nil}
@@ -269,6 +269,11 @@ app_initialize :: proc() -> bool {
 	}
 	app.delegate_class = delegate_class
 	app.view_class = view_class
+	app.window_class = host_window_class()
+	if app.window_class == nil {
+		host_failure("window class could not be registered", .Critical)
+		return false
+	}
 	app.delegate = host_new_delegate()
 	app.application = NS.Application.sharedApplication()
 	app.application->setActivationPolicy(.Regular)
@@ -313,15 +318,8 @@ window_create :: proc(start: string, ephemeral: bool) -> ^Window {
 			restored = true
 		}
 	}
-	window_class := host_window_class()
-	if window_class == nil {
-		host_failure("window class could not be registered", .Critical)
-		devlog.failed(devlog.global(), site, {reason = "window class could not be registered"})
-		window_destroy(window)
-		return nil
-	}
 	window.delegate = host_new_delegate()
-	window.ns_window = (^NS.Window)(NS.class_createInstance(window_class, 0))
+	window.ns_window = (^NS.Window)(NS.class_createInstance(app.window_class, 0))
 	window.ns_window = window.ns_window->initWithContentRect(frame, WINDOW_STYLE, .Buffered, false)
 	window.ns_window->setReleasedWhenClosed(false)
 	if window.ns_window == nil {
