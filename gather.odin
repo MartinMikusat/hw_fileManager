@@ -85,7 +85,7 @@ Gather_Panel :: struct {
 // bar. It is top-origin like every other rect.
 gather_panel_layout :: proc(metrics: View_Metrics, count: int) -> Gather_Panel {
 	row := metrics.row_height
-	width := f32(NAME_MAX_CHARS)*metrics.char_advance+2*COLUMN_PAD
+	width := f32(NAME_MAX_CHARS)*metrics.char_advance+2*column_pad
 	shown := min(count, GATHER_PANEL_MAX_ROWS)
 	height := f32(shown+1)*row
 	if count > shown {height += row}
@@ -95,7 +95,7 @@ gather_panel_layout :: proc(metrics: View_Metrics, count: int) -> Gather_Panel {
 	panel_hit := Gather_Panel{
 		panel = panel,
 		header = {panel.x, top, width, row},
-		clear = {panel.x+width-COLUMN_PAD-clear_width, top, clear_width, row},
+		clear = {panel.x+width-column_pad-clear_width, top, clear_width, row},
 		count = shown,
 		overflow = count-shown,
 	}

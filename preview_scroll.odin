@@ -19,7 +19,7 @@ preview_line_count :: proc(host: ^Window) -> int {
 }
 
 preview_rows :: proc(host: ^Window) -> int {
-	area_height := host.preview_rect.h-2*COLUMN_PAD
+	area_height := host.preview_rect.h-2*column_pad
 	return max(int(area_height/host.tree.row_height), 1)
 }
 
@@ -34,7 +34,7 @@ preview_text_cut_off :: proc(host: ^Window, metrics: View_Metrics) -> bool {
 	if !preview_text_shown(host) || !view_preview_stacked(&host.tree, metrics) {return false}
 	rect, ok := view_preview_rect(&host.tree, metrics)
 	if !ok {return false}
-	columns := int((rect.w-3*COLUMN_PAD)/metrics.char_advance)
+	columns := int((rect.w-3*column_pad)/metrics.char_advance)
 	for line in host.preview.lines {
 		if len(line) > columns && utf8.rune_count_in_string(line) > columns {return true}
 	}

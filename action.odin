@@ -116,8 +116,8 @@ Action_Bar :: struct {
 // action_bar_layout are top-origin rects in the bottom row of the bar.
 action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool) -> Action_Bar {
 	bar: Action_Bar
-	top := metrics.height-BAR_BOTTOM_PAD-metrics.row_height
-	x := COLUMN_PAD
+	top := metrics.height-bar_bottom_pad-metrics.row_height
+	x := column_pad
 	for kind in ACTION_BAR_ORDER {
 		if kind == .Trash && !gathered {continue}
 		width := label_cells(action_label(kind, ungather, shift))*metrics.char_advance
@@ -140,7 +140,7 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 }
 
 action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather, shift: bool) -> (Action_Kind, bool) {
-	top := metrics.height-BAR_BOTTOM_PAD-metrics.row_height
+	top := metrics.height-bar_bottom_pad-metrics.row_height
 	if point.y < top || point.y >= top+metrics.row_height {return .Copy, false}
 	bar := action_bar_layout(metrics, gathered, ungather, shift)
 	for index in 0 ..< bar.count {

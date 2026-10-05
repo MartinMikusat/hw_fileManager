@@ -54,6 +54,7 @@ tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
 	tree.font_size = DEFAULT_FONT_SIZE
 	tree.line_ratio = ROW_HEIGHT_RATIO
 	tree.row_height = row_height_for(DEFAULT_FONT_SIZE, tree.line_ratio)
+	theme_scale_set(DEFAULT_FONT_SIZE)
 	tree.sort = SORT_DEFAULT
 }
 
@@ -63,6 +64,7 @@ tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {
 	if size == tree.font_size {return false}
 	tree.font_size = size
 	tree.row_height = row_height_for(size, tree.line_ratio)
+	theme_scale_set(size)
 	return true
 }
 
@@ -356,7 +358,7 @@ tree_root_directory :: proc(tree: ^Tree) -> string {
 
 tree_column_at :: proc(tree: ^Tree, x: f32) -> int {
 	for column, index in tree.columns {
-		if x >= column.x-COLUMN_PAD && x < column.x+column.width {return index}
+		if x >= column.x-column_pad && x < column.x+column.width {return index}
 	}
 	return -1
 }

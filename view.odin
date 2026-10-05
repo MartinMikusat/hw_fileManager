@@ -171,14 +171,14 @@ view_column_width :: proc(column: ^Column, char_advance: f32) -> f32 {
 			for entry in block.entries {longest = max(longest, min(len(entry.name), NAME_MAX_CHARS))}
 		}
 	}
-	return f32(longest)*char_advance+2*COLUMN_PAD
+	return f32(longest)*char_advance+2*column_pad
 }
 
 view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics, edit: View_Edit) {
 	for index in 0 ..< len(tree.columns) {
 		width := view_column_width(&tree.columns[index], metrics.char_advance)
 		if edit.active && edit.column == index {
-			width = max(width, f32(len(edit.text))*metrics.char_advance+2*COLUMN_PAD)
+			width = max(width, f32(len(edit.text))*metrics.char_advance+2*column_pad)
 		}
 		tree.columns[index].width = width
 	}
@@ -187,7 +187,7 @@ view_measure_columns :: proc(tree: ^Tree, metrics: View_Metrics, edit: View_Edit
 // view_column_top is the pre-pan top of a column. Each column starts on the row
 // its parent has selected, so a folder's contents open in line with the folder.
 view_column_top :: proc(tree: ^Tree, index: int) -> f32 {
-	y := CHROME_HEIGHT+COLUMN_PAD
+	y := chrome_height+column_pad
 	for parent_index in 0 ..< index {
 		parent := &tree.columns[parent_index]
 		if parent.selected >= 0 {y += f32(parent.selected)*tree.row_height}
@@ -206,7 +206,7 @@ view_block_key :: proc(block: Block) -> string {
 view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics, dt: f32, snap: bool) {
 	tree_slots_begin(tree)
 	defer tree_slots_end(tree)
-	x := COLUMN_PAD+tree.pan_x
+	x := column_pad+tree.pan_x
 	gap := view_context_gap(tree)
 	for index in 0 ..< len(tree.columns) {
 		column := &tree.columns[index]
@@ -223,7 +223,7 @@ view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics, dt: f32, snap: bo
 			block.y = cursor
 			cursor += f32(len(block.entries))*tree.row_height
 		}
-		x += column.width+COLUMN_GAP
+		x += column.width+column_gap
 		_ = trail_place(tree, column, gap)
 		// The stack moves rigidly: the first listing also present last frame
 		// sets how far the whole stack jumped, and the spring unwinds that jump.
@@ -245,7 +245,7 @@ view_place_columns :: proc(tree: ^Tree, metrics: View_Metrics, dt: f32, snap: bo
 			stack.value += jump
 			// Sibling listings load only near the view, so a slide longer than half
 			// of it (a huge folder passing by) would reveal listings never read.
-			if abs(stack.value) > (metrics.height-metrics.bar_height-CHROME_HEIGHT)/2 {stack^ = {}}
+			if abs(stack.value) > (metrics.height-metrics.bar_height-chrome_height)/2 {stack^ = {}}
 			if !spring_step(&stack.value, &stack.velocity, 0, dt) {tree.pan_moving = true}
 		}
 		for blocks in stacks {
@@ -266,7 +266,7 @@ view_pan_y_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return tree.pan_y}
 	column := &tree.columns[tree.active]
 	if column.selected < 0 {return tree.pan_y}
-	center := (CHROME_HEIGHT+(metrics.height-metrics.bar_height))/2
+	center := (chrome_height+(metrics.height-metrics.bar_height))/2
 	row_center := view_column_top(tree, tree.active)+f32(column.selected)*tree.row_height+tree.row_height/2
 	return center-row_center
 }
@@ -275,14 +275,14 @@ view_pan_y_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
 // line, so a name growing or shrinking never shifts the cascade.
 view_pan_x_target :: proc(tree: ^Tree, metrics: View_Metrics) -> f32 {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return tree.pan_x}
-	left := COLUMN_PAD
-	for index in 0 ..< tree.active {left += tree.columns[index].width+COLUMN_GAP}
+	left := column_pad
+	for index in 0 ..< tree.active {left += tree.columns[index].width+column_gap}
 	if view_preview_stacked(tree, metrics) {
 		// Portrait: the active column and the folders beside it sit flush right.
 		active := &tree.columns[tree.active]
 		right := left+active.width
-		if view_trail_shown(active) {right += COLUMN_GAP+COLUMN_PAD+view_trail_chars(active)*metrics.char_advance}
-		return metrics.width-COLUMN_PAD-right
+		if view_trail_shown(active) {right += column_gap+column_pad+view_trail_chars(active)*metrics.char_advance}
+		return metrics.width-column_pad-right
 	}
 	return metrics.width/2-left
 }
@@ -303,7 +303,7 @@ view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}, dt 
 	} else {
 		settled_y = spring_step(&tree.pan_y, &tree.pan_vy, target_y, dt)
 	}
-	complete := tree_load_context(tree, CHROME_HEIGHT, metrics.height-metrics.bar_height, view_context_gap(tree))
+	complete := tree_load_context(tree, chrome_height, metrics.height-metrics.bar_height, view_context_gap(tree))
 	view_measure_columns(tree, metrics, edit)
 	target_x := view_pan_x_target(tree, metrics)
 	settled_x := true
@@ -329,7 +329,7 @@ label_cells :: proc(label: string) -> f32 {
 	return cells
 }
 
-bar_height_of :: proc(row_height: f32) -> f32 {return 2*row_height+BAR_BOTTOM_PAD}
+bar_height_of :: proc(row_height: f32) -> f32 {return 2*row_height+bar_bottom_pad}
 
 // view_rect_draw flips a top-origin rect into the bottom-origin space the draw
 // list renders in. Chrome controls are the only rects kept bottom-origin.
@@ -340,14 +340,14 @@ view_rect_draw :: proc(rect: draw.Rect, metrics: View_Metrics) -> draw.Rect {
 // The semaphore strip is the right-most item of the chrome row: three bracketed
 // controls, edge to edge, flush with the right inset.
 view_control_rect :: proc(index: int, metrics: View_Metrics) -> draw.Rect {
-	height := min(metrics.row_height, CHROME_HEIGHT)
+	height := min(metrics.row_height, chrome_height)
 	x := metrics.width-(CONTROL_INSET_CELLS+f32(3-index)*CONTROL_CELLS)*metrics.char_advance
-	y := (CHROME_HEIGHT-height)/2
+	y := (chrome_height-height)/2
 	return {x, metrics.height-y-height, CONTROL_CELLS*metrics.char_advance, height}
 }
 
 view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
-	if point.y >= CHROME_HEIGHT {return -1}
+	if point.y >= chrome_height {return -1}
 	for index in 0 ..< 3 {
 		rect := view_control_rect(index, metrics)
 		if point.x >= rect.x && point.x < rect.x+rect.w && point.y >= metrics.height-rect.y-rect.h && point.y < metrics.height-rect.y {
@@ -358,32 +358,32 @@ view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
 }
 
 view_settings_control_rect :: proc(metrics: View_Metrics) -> draw.Rect {
-	height := min(metrics.row_height, CHROME_HEIGHT)
+	height := min(metrics.row_height, chrome_height)
 	width := label_cells(SETTINGS_LABEL)*metrics.char_advance
 	strip := (CONTROL_INSET_CELLS+3*CONTROL_CELLS)*metrics.char_advance
 	x := metrics.width-strip-metrics.char_advance-width
-	y := (CHROME_HEIGHT-height)/2
+	y := (chrome_height-height)/2
 	return {x, metrics.height-y-height, width, height}
 }
 
 view_settings_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> bool {
-	if point.y >= CHROME_HEIGHT {return false}
+	if point.y >= chrome_height {return false}
 	rect := view_settings_control_rect(metrics)
 	return point.x >= rect.x && point.x < rect.x+rect.w && point.y >= metrics.height-rect.y-rect.h && point.y < metrics.height-rect.y
 }
 
 // The sort control sits one cell left of Settings, in the same borderless style.
 view_sort_control_rect :: proc(tree: ^Tree, metrics: View_Metrics) -> draw.Rect {
-	height := min(metrics.row_height, CHROME_HEIGHT)
+	height := min(metrics.row_height, chrome_height)
 	width := label_cells(sort_label(tree.sort))*metrics.char_advance
 	settings := view_settings_control_rect(metrics)
 	x := settings.x-metrics.char_advance-width
-	y := (CHROME_HEIGHT-height)/2
+	y := (chrome_height-height)/2
 	return {x, metrics.height-y-height, width, height}
 }
 
 view_sort_control_at :: proc(point: ui.Vec2, tree: ^Tree, metrics: View_Metrics) -> bool {
-	if point.y >= CHROME_HEIGHT {return false}
+	if point.y >= chrome_height {return false}
 	rect := view_sort_control_rect(tree, metrics)
 	return view_rect_has(rect, {point.x, metrics.height-point.y})
 }
@@ -401,12 +401,12 @@ view_sort_menu_layout :: proc(tree: ^Tree, metrics: View_Metrics) -> Sort_Menu {
 	for option in sort_options {
 		width = max(width, f32(len(sort_option_label(option)))*metrics.char_advance)
 	}
-	width += 2*COLUMN_PAD
+	width += 2*column_pad
 	button := view_sort_control_rect(tree, metrics)
-	x := clamp(button.x+button.w-width, COLUMN_PAD, max(metrics.width-width-COLUMN_PAD, COLUMN_PAD))
-	menu := Sort_Menu{panel = {x, CHROME_HEIGHT, width, f32(SORT_OPTION_COUNT)*row}}
+	x := clamp(button.x+button.w-width, column_pad, max(metrics.width-width-column_pad, column_pad))
+	menu := Sort_Menu{panel = {x, chrome_height, width, f32(SORT_OPTION_COUNT)*row}}
 	for index in 0 ..< SORT_OPTION_COUNT {
-		menu.rows[index] = {x, CHROME_HEIGHT+f32(index)*row, width, row}
+		menu.rows[index] = {x, chrome_height+f32(index)*row, width, row}
 	}
 	return menu
 }
@@ -436,7 +436,7 @@ safe_panel_layout :: proc(metrics: View_Metrics) -> Safe_Panel {
 	buttons_width := f32(len(SAFE_COPY_LABEL)+len(SAFE_EXPORT_LABEL)+len(SAFE_DISMISS_LABEL)+len(SAFE_RESET_LABEL))*ch+3*ACTION_GAP_CELLS*ch
 	width := min(max(buttons_width, f32(len(SAFE_SUBTITLE))*ch)+2*pad, metrics.width-2*pad)
 	height := 3*row+2*pad
-	panel := draw.Rect{(metrics.width-width)/2, CHROME_HEIGHT+pad, width, height}
+	panel := draw.Rect{(metrics.width-width)/2, chrome_height+pad, width, height}
 	result := Safe_Panel{panel = panel, count = len(labels)}
 	cursor := panel.x+pad
 	button_top := panel.y+pad+2*row
@@ -459,7 +459,7 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 	ch := metrics.char_advance
 	row := tree.row_height
 	pad := 2*ch
-	width := min(SETTINGS_PANEL_WIDTH, max(metrics.width-4*ch, 0))
+	width := min(settings_panel_width, max(metrics.width-4*ch, 0))
 	height := 10*row+2*pad
 	layout := Settings_Layout{}
 	layout.panel = draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
@@ -589,7 +589,7 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	if len(title) == 0 {return}
 	x := CONTROL_INSET_CELLS*metrics.char_advance
 	available := max(version_x-x-metrics.char_advance, 0)
-	view_draw_text(text, list, title, x, 0, CHROME_HEIGHT, tree.font_size, COLOR_DIM, metrics.height, available)
+	view_draw_text(text, list, title, x, 0, chrome_height, tree.font_size, COLOR_DIM, metrics.height, available)
 }
 
 // The child's first entry opens on the parent's selected row, so the connector is
@@ -603,7 +603,7 @@ view_draw_connector :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: 
 	color := COLOR_CONNECTOR
 	if index+1 <= tree.active {color = COLOR_CONNECTOR_HOT}
 	x0 := parent.x+parent.width
-	draw.solid(list, {x0, metrics.height-row_y-CONNECTOR_WIDTH/2, child.x-x0, CONNECTOR_WIDTH}, color)
+	draw.solid(list, {x0, metrics.height-row_y-connector_width/2, child.x-x0, connector_width}, color)
 }
 
 // view_connector_line draws an axis-aligned segment between two top-origin points.
@@ -613,10 +613,10 @@ view_connector_line :: proc(list: ^draw.List, metrics: View_Metrics, x0, y0, x1,
 	rect: draw.Rect
 	if y0 == y1 {
 		if right-left < 0.01 {return}
-		rect = {left, y0-CONNECTOR_WIDTH/2, right-left, CONNECTOR_WIDTH}
+		rect = {left, y0-connector_width/2, right-left, connector_width}
 	} else {
 		if bottom-top < 0.01 {return}
-		rect = {x0-CONNECTOR_WIDTH/2, top, CONNECTOR_WIDTH, bottom-top}
+		rect = {x0-connector_width/2, top, connector_width, bottom-top}
 	}
 	draw.solid(list, view_rect_draw(rect, metrics), color, edge_softness = 0.5)
 }
@@ -628,7 +628,7 @@ view_connector_corner :: proc(list: ^draw.List, metrics: View_Metrics, cx, cy, r
 	draw.push_clip(list, view_rect_draw(quadrant, metrics))
 	defer draw.pop_clip(list)
 	circle := draw.Rect{cx-radius, cy-radius, 2*radius, 2*radius}
-	draw.solid(list, view_rect_draw(circle, metrics), color, corner_radius = radius, border_thickness = CONNECTOR_WIDTH, edge_softness = 0.5)
+	draw.solid(list, view_rect_draw(circle, metrics), color, corner_radius = radius, border_thickness = connector_width, edge_softness = 0.5)
 }
 
 // view_draw_context_connector links a folder in the parent column to the listing of
@@ -638,7 +638,7 @@ view_draw_context_connector :: proc(tree: ^Tree, list: ^draw.List, parent: ^Colu
 	if block.row < 0 || block.row >= len(parent.entries) {return}
 	name := parent.entries[block.row].name
 	name_cells := min(utf8.rune_count_in_string(name), NAME_MAX_CHARS)
-	x0 := min(parent.x+COLUMN_PAD+(f32(name_cells)+0.5)*metrics.char_advance, parent.x+parent.width)
+	x0 := min(parent.x+column_pad+(f32(name_cells)+0.5)*metrics.char_advance, parent.x+parent.width)
 	y0 := parent.y+f32(block.row)*tree.row_height+tree.row_height/2
 	x1 := child.x
 	y1 := block.y+tree.row_height/2
@@ -648,7 +648,7 @@ view_draw_context_connector :: proc(tree: ^Tree, list: ^draw.List, parent: ^Colu
 		return
 	}
 	sign := y1 > y0 ? f32(1) : f32(-1)
-	radius := min(f32(5), abs(y1-y0)/2, channel-x0, x1-channel)
+	radius := min(scaled(5), abs(y1-y0)/2, channel-x0, x1-channel)
 	if radius < 0.5 {
 		view_connector_line(list, metrics, x0, y0, channel, y0, color)
 		view_connector_line(list, metrics, channel, y0, channel, y1, color)
@@ -668,7 +668,7 @@ view_draw_context_connector :: proc(tree: ^Tree, list: ^draw.List, parent: ^Colu
 view_draw_context_connectors :: proc(tree: ^Tree, list: ^draw.List, index: int, metrics: View_Metrics) {
 	parent := &tree.columns[index]
 	child := &tree.columns[index+1]
-	top := CHROME_HEIGHT
+	top := chrome_height
 	bottom := metrics.height-metrics.bar_height
 	draw.push_clip(list, view_rect_draw({0, top, metrics.width, bottom-top}, metrics))
 	defer draw.pop_clip(list)
@@ -689,13 +689,13 @@ view_draw_context_connectors :: proc(tree: ^Tree, list: ^draw.List, index: int, 
 			y1 := block.y
 			if max(y0, y1)+tree.row_height < top || min(y0, y1) > bottom {continue}
 			drawn += 1
-			view_draw_context_connector(tree, list, parent, child, block, x1-3-f32(drawn)*step+step, metrics)
+			view_draw_context_connector(tree, list, parent, child, block, x1-scaled(3)-f32(drawn)*step+step, metrics)
 		}
 	}
 }
 
 view_draw_gather_marker :: proc(list: ^draw.List, metrics: View_Metrics, x, row_top, row_height: f32) {
-	draw.solid(list, view_rect_draw({x, row_top+(row_height-5)/2, 5, 5}, metrics), COLOR_RED, edge_softness = 0)
+	draw.solid(list, view_rect_draw({x, row_top+(row_height-scaled(5))/2, scaled(5), scaled(5)}, metrics), COLOR_RED, edge_softness = 0)
 }
 
 view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, blocks: []Block, x, top, bottom: f32, metrics: View_Metrics, state: View_State) {
@@ -705,12 +705,12 @@ view_draw_blocks :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			row_top := block.y+f32(row)*tree.row_height
 			if row_top+tree.row_height < top || row_top > bottom {continue}
 			if path_list_contains(state.gather_paths, entry.path) {
-				view_draw_gather_marker(list, metrics, x-COLUMN_PAD+3, row_top, tree.row_height)
+				view_draw_gather_marker(list, metrics, x-column_pad+scaled(3), row_top, tree.row_height)
 			}
 			max_width := f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
 			color := entry_color(entry.recency, entry.hidden)
 			if searching && search_matches(entry, state.input) {color = COLOR_SEARCH}
-			view_draw_text(text, list, entry.name, x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
+			view_draw_text(text, list, entry.name, x+column_pad, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 		}
 	}
 }
@@ -742,19 +742,19 @@ view_draw_trail :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, 
 	column := &tree.columns[index]
 	if !view_trail_shown(column) {return}
 	longest := int(view_trail_chars(column))
-	x := column.x+column.width+COLUMN_GAP
-	top := CHROME_HEIGHT
-	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
-	draw.push_clip(list, {x-COLUMN_PAD, metrics.height-bottom, f32(longest)*metrics.char_advance+2*COLUMN_PAD, bottom-top})
+	x := column.x+column.width+column_gap
+	top := chrome_height
+	bottom := max(metrics.height-metrics.bar_height-column_pad, top+tree.row_height)
+	draw.push_clip(list, {x-column_pad, metrics.height-bottom, f32(longest)*metrics.char_advance+2*column_pad, bottom-top})
 	defer draw.pop_clip(list)
 	view_draw_blocks(tree, list, text, column.trail[:], x, top, bottom, metrics, state)
 }
 
 view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, index: int, metrics: View_Metrics, state: View_State) {
 	column := &tree.columns[index]
-	top := CHROME_HEIGHT
-	bottom := max(metrics.height-metrics.bar_height-COLUMN_PAD, top+tree.row_height)
-	draw.push_clip(list, {column.x-COLUMN_PAD, metrics.height-bottom, column.width+metrics.char_advance, bottom-top})
+	top := chrome_height
+	bottom := max(metrics.height-metrics.bar_height-column_pad, top+tree.row_height)
+	draw.push_clip(list, {column.x-column_pad, metrics.height-bottom, column.width+metrics.char_advance, bottom-top})
 	defer draw.pop_clip(list)
 	searching := state.input_mode == .Search && len(state.input) > 0
 	completing := state.input_mode == .Cd && state.cd_completing && len(state.input) > 0 && index == tree.active
@@ -767,12 +767,12 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		selected := row == column.selected
 		current := selected && index <= tree.active
 		if current {
-			left := column.x+COLUMN_PAD-metrics.char_advance
-			right := column.x+column.width-COLUMN_PAD+metrics.char_advance
+			left := column.x+column_pad-metrics.char_advance
+			right := column.x+column.width-column_pad+metrics.char_advance
 			draw.solid(list, {left, metrics.height-row_top-tree.row_height, right-left, tree.row_height}, COLOR_SELECTED_ROW)
 		}
 		if path_list_contains(state.gather_paths, entry.path) {
-			view_draw_gather_marker(list, metrics, column.x-COLUMN_PAD+3, row_top, tree.row_height)
+			view_draw_gather_marker(list, metrics, column.x-column_pad+scaled(3), row_top, tree.row_height)
 		}
 		color := entry_color(entry.recency, entry.hidden)
 		max_width := selected ? f32(0) : f32(min(len(entry.name), NAME_MAX_CHARS))*metrics.char_advance
@@ -783,7 +783,7 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 			if completing && entry.is_dir && name_has_prefix_fold(entry.name, state.input) {color = COLOR_SEARCH}
 			if state.clip_cut && path_list_contains(state.clip_paths, entry.path) {color = COLOR_RED}
 		}
-		view_draw_text(text, list, entry.name, column.x+COLUMN_PAD, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
+		view_draw_text(text, list, entry.name, column.x+column_pad, row_top, tree.row_height, tree.font_size, color, metrics.height, max_width)
 	}
 	view_draw_blocks(tree, list, text, column.above[:], column.x, top, bottom, metrics, state)
 	view_draw_blocks(tree, list, text, column.below[:], column.x, top, bottom, metrics, state)
@@ -797,19 +797,19 @@ view_draw_column :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 view_draw_inline_edit :: proc(text: ^coretext.Context, list: ^draw.List, tree: ^Tree, metrics: View_Metrics, column: ^Column, edit: View_Edit) {
 	row_top := column.y+f32(edit.row)*tree.row_height
 	row_bottom := metrics.height-row_top-tree.row_height
-	draw.solid(list, {column.x-COLUMN_PAD, row_bottom, column.width, tree.row_height}, COLOR_SELECTION_BG)
-	content_width := max(column.width-2*COLUMN_PAD, metrics.char_advance)
+	draw.solid(list, {column.x-column_pad, row_bottom, column.width, tree.row_height}, COLOR_SELECTION_BG)
+	content_width := max(column.width-2*column_pad, metrics.char_advance)
 	run := coretext.shape(text, FONT_MONO, edit.text, tree.font_size, text_tracking, 0, false)
 	caret_x := view_edit_offset(text, run, edit.text, edit.caret)
 	start_x := view_edit_offset(text, run, edit.text, edit.selection_start)
 	end_x := view_edit_offset(text, run, edit.text, edit.selection_end)
 	scroll := max(caret_x-(content_width-metrics.char_advance), 0)
-	left := column.x+COLUMN_PAD-scroll
+	left := column.x+column_pad-scroll
 	if edit.selection_end > edit.selection_start {
 		draw.solid(list, {left+start_x, row_bottom, end_x-start_x, tree.row_height}, COLOR_SELECTION_INK, edge_softness = 0)
 	}
 	view_draw_text(text, list, edit.text, left, row_top, tree.row_height, tree.font_size, edit.error ? COLOR_RED : COLOR_TEXT, metrics.height)
-	draw.solid(list, {left+caret_x, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
+	draw.solid(list, {left+caret_x, row_bottom+2*scaled(2), caret_width, tree.row_height-4*scaled(2)}, COLOR_CARET, edge_softness = 0)
 }
 
 // CTLine offsets are in backing pixels; the draw list works in logical points.
@@ -825,14 +825,14 @@ view_edit_offset :: proc(text: ^coretext.Context, run: ^coretext.Shaped_Run, val
 view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool, caret := -1, sel_start := 0, sel_end := 0) {
 	row_bottom := metrics.bar_height-tree.row_height
 	if len(value) == 0 {
-		if caret >= 0 {draw.solid(list, {COLUMN_PAD, row_bottom+2, 1.5, tree.row_height-4}, COLOR_CARET, edge_softness = 0)}
+		if caret >= 0 {draw.solid(list, {column_pad, row_bottom+scaled(2), caret_width, tree.row_height-2*scaled(2)}, COLOR_CARET, edge_softness = 0)}
 		return
 	}
 	run := coretext.shape(text, FONT_MONO, value, tree.font_size, text_tracking, 0, false)
 	if run == nil {return}
-	x := COLUMN_PAD
+	x := column_pad
 	if right_align {
-		if width := run.metrics.width; x+width > metrics.width-COLUMN_PAD {x = metrics.width-COLUMN_PAD-width}
+		if width := run.metrics.width; x+width > metrics.width-column_pad {x = metrics.width-column_pad-width}
 	}
 	if caret >= 0 && sel_end > sel_start {
 		start_x := view_edit_offset(text, run, value, sel_start)
@@ -844,7 +844,7 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 	origin := ui.Vec2{x, metrics.height-(text_top+run.metrics.ascent)}
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
 	if caret >= 0 {
-		draw.solid(list, {x+view_edit_offset(text, run, value, caret), row_bottom+2, 1.5, tree.row_height-4}, COLOR_CARET, edge_softness = 0)
+		draw.solid(list, {x+view_edit_offset(text, run, value, caret), row_bottom+scaled(2), caret_width, tree.row_height-2*scaled(2)}, COLOR_CARET, edge_softness = 0)
 	}
 }
 
@@ -878,12 +878,12 @@ view_draw_bar :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, me
 			break
 		}
 		if state.search_committed {
-			view_top, view_bottom := CHROME_HEIGHT, metrics.height-metrics.bar_height
+			view_top, view_bottom := chrome_height, metrics.height-metrics.bar_height
 			current, total := search_progress(tree, state.input, view_top, view_bottom)
 			view_bar_text(text, list, fmt.tprintf("/%s [%d/%d]", state.input, current, total), tree, metrics, COLOR_SEARCH, true)
 			break
 		}
-		_, total := search_progress(tree, state.input, CHROME_HEIGHT, metrics.height-metrics.bar_height)
+		_, total := search_progress(tree, state.input, chrome_height, metrics.height-metrics.bar_height)
 		view_bar_text(text, list, fmt.tprintf("/%s [%d]", state.input, total), tree, metrics, COLOR_SEARCH, true, 1+state.input_caret, 1+state.input_sel_start, 1+state.input_sel_end)
 	case .None:
 		if len(state.notice) > 0 {
@@ -898,7 +898,7 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	if count == 0 {return}
 	layout := gather_panel_layout(metrics, count)
 	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_SELECTION_BG, edge_softness = 0)
-	view_draw_text(text, list, fmt.tprintf("Gathered (%d)", count), layout.header.x+COLUMN_PAD, layout.header.y, layout.header.h, tree.font_size, COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, fmt.tprintf("Gathered (%d)", count), layout.header.x+column_pad, layout.header.y, layout.header.h, tree.font_size, COLOR_TEXT, metrics.height)
 	if state.gather_hot_clear {draw.solid(list, view_rect_draw(layout.clear, metrics), COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, GATHER_CLEAR_LABEL, layout.clear.x, layout.clear.y, layout.clear.h, tree.font_size, state.gather_hot_clear ? COLOR_BACKGROUND : COLOR_DIM, metrics.height)
 	max_width := f32(NAME_MAX_CHARS)*metrics.char_advance
@@ -906,11 +906,11 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 		rect := layout.rows[index]
 		hot := index == state.gather_hot_row
 		if hot {draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)}
-		view_draw_text(text, list, filepath.base(state.gather_paths[index]), rect.x+COLUMN_PAD, rect.y, rect.h, tree.font_size, hot ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height, max_width)
+		view_draw_text(text, list, filepath.base(state.gather_paths[index]), rect.x+column_pad, rect.y, rect.h, tree.font_size, hot ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height, max_width)
 	}
 	if layout.overflow > 0 {
 		last := layout.rows[layout.count-1]
-		view_draw_text(text, list, fmt.tprintf("+%d more", layout.overflow), layout.panel.x+COLUMN_PAD, last.y+last.h, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
+		view_draw_text(text, list, fmt.tprintf("+%d more", layout.overflow), layout.panel.x+column_pad, last.y+last.h, tree.row_height, tree.font_size, COLOR_DIM, metrics.height)
 	}
 }
 
@@ -942,7 +942,7 @@ view_draw_sort_menu :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Conte
 		hot := index == state.hot.sort_row
 		if active || hot {draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)}
 		color := (active || hot) ? COLOR_BACKGROUND : COLOR_TEXT
-		view_draw_text(text, list, sort_option_label(option), rect.x+COLUMN_PAD, rect.y, rect.h, tree.font_size, color, metrics.height)
+		view_draw_text(text, list, sort_option_label(option), rect.x+column_pad, rect.y, rect.h, tree.font_size, color, metrics.height)
 	}
 }
 
@@ -964,7 +964,7 @@ view_draw_field :: proc(text: ^coretext.Context, list: ^draw.List, value: string
 		draw.solid(list, {left+start_x, bottom, end_x-start_x, rect.h}, COLOR_SELECTION_INK, edge_softness = 0)
 	}
 	view_draw_text(text, list, value, left, rect.y, rect.h, tree.font_size, COLOR_TEXT, metrics.height)
-	draw.solid(list, {left+caret_x, bottom+4, 1.5, rect.h-8}, COLOR_CARET, edge_softness = 0)
+	draw.solid(list, {left+caret_x, bottom+scaled(4), caret_width, rect.h-scaled(8)}, COLOR_CARET, edge_softness = 0)
 }
 
 view_draw_settings :: proc(

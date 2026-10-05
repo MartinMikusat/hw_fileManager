@@ -28,7 +28,7 @@ Preview_View :: struct {
 
 // view_preview_area is the content area inside the preview panel.
 view_preview_area :: proc(rect: draw.Rect) -> draw.Rect {
-	return {rect.x+2*COLUMN_PAD, rect.y+COLUMN_PAD, rect.w-3*COLUMN_PAD, rect.h-2*COLUMN_PAD}
+	return {rect.x+2*column_pad, rect.y+column_pad, rect.w-3*column_pad, rect.h-2*column_pad}
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
@@ -39,8 +39,8 @@ view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics, full := false) -> 
 	if tree.active < 0 || tree.active >= len(tree.columns) {return {}, false}
 	keep := &tree.columns[max(tree.active-(view_preview_stacked(tree, metrics) ? 1 : 2), 0)]
 	left := f32(0)
-	right := full ? metrics.width : keep.x-COLUMN_PAD-1
-	top := CHROME_HEIGHT
+	right := full ? metrics.width : keep.x-column_pad-1
+	top := chrome_height
 	bottom := metrics.height-metrics.bar_height
 	if right-left < 12*metrics.char_advance || bottom-top < 4*tree.row_height {return {}, false}
 	return {left, top, right-left, bottom-top}, true

@@ -9,10 +9,7 @@ DEFAULT_FONT_SIZE :: 14
 FONT_SIZE_MIN :: 10
 FONT_SIZE_MAX :: 24
 ROW_HEIGHT_RATIO :: f32(22.0/14.0)
-COLUMN_GAP :: f32(20)
-COLUMN_PAD :: f32(10)
 NAME_MAX_CHARS :: 30
-CHROME_HEIGHT :: f32(28)
 CONTROL_INSET_CELLS :: f32(1)
 CONTROL_CELLS :: f32(3)
 
@@ -40,12 +37,8 @@ COLOR_SYNTAX_DIRECTIVE :: draw.Color{0.950, 0.560, 0.720, 1.0}
 COLOR_SYNTAX_TAG       :: draw.Color{0.950, 0.450, 0.450, 1.0}
 COLOR_SYNTAX_PROPERTY  :: draw.Color{0.650, 0.780, 1.000, 1.0}
 
-CONNECTOR_WIDTH :: f32(1.5)
 ACTION_GAP_CELLS :: f32(2)
-// BAR_BOTTOM_PAD is 0.5rem of empty space under the action row.
-BAR_BOTTOM_PAD :: f32(8)
 NOTICE_MAX :: 96
-SETTINGS_PANEL_WIDTH :: f32(380)
 GATHER_PANEL_MAX_ROWS :: 10
 
 COLOR_MODAL_BACKDROP :: draw.Color{0.0, 0.0, 0.0, 0.75}
@@ -69,3 +62,28 @@ entry_color :: proc(recency: f32, hidden: bool) -> draw.Color {
 color_lerp :: proc(a, b: draw.Color, t: f32) -> draw.Color {
 	return {a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t, a[3]+(b[3]-a[3])*t}
 }
+
+// Every dimension is a function of the font size: these are the point values at
+// DEFAULT_FONT_SIZE scaled by theme_scale_set, which tree_set_font_size calls.
+ui_scale: f32 = 1
+column_gap: f32
+column_pad: f32
+chrome_height: f32
+bar_bottom_pad: f32
+connector_width: f32
+caret_width: f32
+settings_panel_width: f32
+
+theme_scale_set :: proc(font_size: f32) {
+	ui_scale = font_size/DEFAULT_FONT_SIZE
+	column_gap = scaled(20)
+	column_pad = scaled(10)
+	chrome_height = scaled(28)
+	bar_bottom_pad = scaled(8)
+	connector_width = scaled(1.5)
+	caret_width = scaled(1.5)
+	settings_panel_width = scaled(380)
+}
+
+// scaled converts points at DEFAULT_FONT_SIZE to the current font size.
+scaled :: proc(points: f32) -> f32 {return points*ui_scale}

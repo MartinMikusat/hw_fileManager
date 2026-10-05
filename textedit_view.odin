@@ -6,7 +6,6 @@ import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 
 TEXTEDIT_TAB_COLUMNS :: len(PREVIEW_TAB_SPACES)
-TEXTEDIT_CARET_WIDTH :: f32(1.5)
 
 // textedit_rune_columns is the width of a character on the monospace grid.
 textedit_rune_columns :: proc(value: rune) -> int {
@@ -82,12 +81,12 @@ textedit_draw :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context, ar
 		if marked_start >= 0 && marked_end > line_start && marked_start <= line_end {
 			from := textedit_column(buffer, line_start, max(marked_start, line_start))
 			to := textedit_column(buffer, line_start, min(marked_end, line_end))
-			rect := draw.Rect{area.x+f32(from-edit.hscroll)*metrics.char_advance, top+tree.row_height-2, f32(to-from)*metrics.char_advance, 1}
+			rect := draw.Rect{area.x+f32(from-edit.hscroll)*metrics.char_advance, top+tree.row_height-scaled(2), f32(to-from)*metrics.char_advance, scaled(1)}
 			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
 		}
 		if caret >= line_start && caret <= line_end && edit.prompt == .None {
 			at := textedit_column(buffer, line_start, caret)
-			rect := draw.Rect{area.x+f32(at-edit.hscroll)*metrics.char_advance, top, TEXTEDIT_CARET_WIDTH, tree.row_height}
+			rect := draw.Rect{area.x+f32(at-edit.hscroll)*metrics.char_advance, top, caret_width, tree.row_height}
 			draw.solid(list, view_rect_draw(rect, metrics), COLOR_TEXT, edge_softness = 0)
 		}
 	}

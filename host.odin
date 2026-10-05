@@ -765,7 +765,7 @@ host_request_all_frames :: proc(count: int) {
 }
 
 host_search_bounds :: proc(window: ^Window) -> (view_top, view_bottom: f32) {
-	return CHROME_HEIGHT, window.view_height-bar_height_of(window.tree.row_height)
+	return chrome_height, window.view_height-bar_height_of(window.tree.row_height)
 }
 
 host_render :: proc(window: ^Window) {
@@ -1111,7 +1111,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		settings_panel_open(window)
 		return
 	}
-	if point.y < CHROME_HEIGHT {
+	if point.y < chrome_height {
 		if event->clickCount() >= 2 {
 			host_apply_control(window, CONTROL_ZOOM)
 			return
@@ -1119,7 +1119,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		intrinsics.objc_send(nil, window.ns_window, "performWindowDragWithEvent:", event)
 		return
 	}
-	if point.y >= window.view_height-BAR_BOTTOM_PAD-window.tree.row_height && point.y < window.view_height-BAR_BOTTOM_PAD {
+	if point.y >= window.view_height-bar_bottom_pad-window.tree.row_height && point.y < window.view_height-bar_bottom_pad {
 		if kind, inside := action_bar_at(metrics, point, len(window.gather_paths) > 0, action_current_gathered(window), window.shift_down); inside {action_perform(window, kind, window.shift_down)}
 		return
 	}
