@@ -820,7 +820,7 @@ view_edit_offset :: proc(text: ^coretext.Context, run: ^coretext.Shaped_Run, val
 view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, tree: ^Tree, metrics: View_Metrics, color: draw.Color, right_align: bool, caret := -1, sel_start := 0, sel_end := 0) {
 	row_bottom := metrics.bar_height-tree.row_height
 	if len(value) == 0 {
-		if caret >= 0 {draw.solid(list, {COLUMN_PAD, row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)}
+		if caret >= 0 {draw.solid(list, {COLUMN_PAD, row_bottom+2, 1.5, tree.row_height-4}, COLOR_CARET, edge_softness = 0)}
 		return
 	}
 	run := coretext.shape(text, FONT_MONO, value, tree.font_size, text_tracking, 0, false)
@@ -839,7 +839,7 @@ view_bar_text :: proc(text: ^coretext.Context, list: ^draw.List, value: string, 
 	origin := ui.Vec2{x, metrics.height-(text_top+run.metrics.ascent)}
 	coretext.emit_shaped_run(text, list, run, origin, color, "")
 	if caret >= 0 {
-		draw.solid(list, {x+view_edit_offset(text, run, value, caret), row_bottom+4, 1.5, tree.row_height-8}, COLOR_CARET, edge_softness = 0)
+		draw.solid(list, {x+view_edit_offset(text, run, value, caret), row_bottom+2, 1.5, tree.row_height-4}, COLOR_CARET, edge_softness = 0)
 	}
 }
 
