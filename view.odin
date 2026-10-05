@@ -361,7 +361,7 @@ view_control_at :: proc(point: ui.Vec2, metrics: View_Metrics) -> int {
 
 view_settings_control_rect :: proc(metrics: View_Metrics) -> draw.Rect {
 	height := min(metrics.row_height, chrome_height)
-	width := label_cells(SETTINGS_LABEL)*metrics.char_advance
+	width := label_cells(settings_label())*metrics.char_advance
 	strip := (CONTROL_INSET_CELLS+3*CONTROL_CELLS)*metrics.char_advance
 	x := metrics.width-strip-metrics.char_advance-width
 	y := (chrome_height-height)/2
@@ -580,7 +580,7 @@ view_draw_chrome :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	settings := view_settings_control_rect(metrics)
 	if hot.settings_button {draw.solid(list, settings, COLOR_TEXT, edge_softness = 0)}
 	settings_top := metrics.height-settings.y-settings.h
-	view_draw_text(text, list, SETTINGS_LABEL, settings.x, settings_top, settings.h, tree.font_size, hot.settings_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
+	view_draw_text(text, list, settings_label(), settings.x, settings_top, settings.h, tree.font_size, hot.settings_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
 	sort := view_sort_control_rect(tree, metrics)
 	if hot.sort_button {draw.solid(list, sort, COLOR_TEXT, edge_softness = 0)}
 	view_draw_text(text, list, sort_label(tree.sort), sort.x, settings_top, sort.h, tree.font_size, hot.sort_button ? COLOR_BACKGROUND : COLOR_TEXT, metrics.height)
