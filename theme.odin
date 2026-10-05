@@ -42,8 +42,8 @@ COLOR_SYNTAX_PROPERTY  :: draw.Color{0.650, 0.780, 1.000, 1.0}
 
 CONNECTOR_WIDTH :: f32(1.5)
 ACTION_GAP_CELLS :: f32(2)
-// BAR_BOTTOM_PAD is 1rem of empty space under the action row.
-BAR_BOTTOM_PAD :: f32(16)
+// BAR_BOTTOM_PAD is 0.5rem of empty space under the action row.
+BAR_BOTTOM_PAD :: f32(8)
 NOTICE_MAX :: 96
 SETTINGS_PANEL_WIDTH :: f32(380)
 GATHER_PANEL_MAX_ROWS :: 10
