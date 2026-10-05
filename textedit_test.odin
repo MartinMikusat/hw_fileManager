@@ -86,3 +86,29 @@ textedit_save_reports_a_file_changed_on_disk :: proc(t: ^testing.T) {
 	testing.expect_value(t, textedit_save(&edit, true), Text_Edit_Save.Saved)
 	testing.expect_value(t, textedit_test_file(), "ba\n")
 }
+
+@(test)
+textedit_composition_commits_as_one_undoable_change :: proc(t: ^testing.T) {
+	defer os.remove(TEXTEDIT_TEST_PATH)
+	edit, ok := textedit_test_open(t, "ab\n")
+	if !ok {return}
+	defer textedit_free(&edit)
+	textedit_collapse(&edit, 1)
+	textedit_set_marked(&edit, "に", -1, 0)
+	textedit_set_marked(&edit, "日", -1, 0)
+	testing.expect_value(t, string(edit.buffer[:]), "a日b\n")
+	textedit_commit_marked(&edit, "日本")
+	testing.expect(t, !edit.state.has_marked_text)
+	testing.expect_value(t, string(edit.buffer[:]), "a日本b\n")
+	testing.expect(t, textedit_undo(&edit, false))
+	testing.expect_value(t, string(edit.buffer[:]), "ab\n")
+}
+
+@(test)
+textedit_maps_columns_across_tabs_and_wide_lines :: proc(t: ^testing.T) {
+	text := "\tx\nlong line"
+	testing.expect_value(t, textedit_column(text, 0, 1), TEXTEDIT_TAB_COLUMNS)
+	testing.expect_value(t, textedit_offset_at_column(text, 0, 2, 0.4), 0)
+	testing.expect_value(t, textedit_offset_at_column(text, 0, 2, 3.0), 1)
+	testing.expect_value(t, textedit_offset_at_column(text, 0, 2, 99), 2)
+}

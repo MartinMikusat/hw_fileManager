@@ -100,6 +100,7 @@ Window :: struct {
 	notice_len:     int,
 	notice_until_ms: i64,
 	preview:        Preview,
+	text_edit:      Text_Edit,
 	preview_rect:   draw.Rect,
 	preview_shown:  bool,
 	preview_cut_off: bool,
@@ -413,6 +414,7 @@ host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bo
 	if !host_add_method(delegate_class, "application:openFile:", rawptr(host_open_file), "B@:@@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "fileManagerCreateDefaultWindow:", rawptr(host_create_default_window), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowWillClose:", rawptr(host_window_will_close), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "windowShouldClose:", rawptr(host_window_should_close), "B@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
@@ -423,10 +425,12 @@ host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bo
 	if !host_add_method(view_class, "acceptsFirstResponder", rawptr(host_accepts_first), "B@:") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "mouseDown:", rawptr(host_mouse_down), "v@:@") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "mouseDragged:", rawptr(host_mouse_dragged), "v@:@") {return delegate_class, view_class, false}
+	if !host_add_method(view_class, "mouseUp:", rawptr(host_mouse_up), "v@:@") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "mouseMoved:", rawptr(host_mouse_moved), "v@:@") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "scrollWheel:", rawptr(host_scroll_wheel), "v@:@") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "keyDown:", rawptr(host_key_down), "v@:@") {return delegate_class, view_class, false}
 	if !host_add_method(view_class, "flagsChanged:", rawptr(host_flags_changed), "v@:@") {return delegate_class, view_class, false}
+	if !textedit_register_methods(view_class) {return delegate_class, view_class, false}
 	NS.objc_registerClassPair(view_class)
 	return delegate_class, view_class, true
 }
@@ -606,6 +610,7 @@ window_release :: proc(window: ^Window, release_ns_window: bool) {
 		edit_cancel(window)
 		input_destroy(window)
 		preview_clear(&window.preview)
+		textedit_free(&window.text_edit)
 		text_input.destroy(&window.text_state)
 		macos.display_link_stop(&window.display_link)
 		tree_destroy(&window.tree)
@@ -621,6 +626,16 @@ window_release :: proc(window: ^Window, release_ns_window: bool) {
 
 // host_window_will_close runs on a window's own delegate, so it only detaches
 // the window; the free happens in host_reap_doomed once the callback has returned.
+// host_window_should_close keeps a window with unsaved text edits open and asks first.
+host_window_should_close :: proc "c" (self: NS.id, cmd: NS.SEL, sender: NS.id) -> bool {
+	context = runtime.default_context()
+	window := window_for_delegate(self)
+	if window == nil {return true}
+	if textedit_leave(window, .Close) {return true}
+	host_request_frames(window, 2)
+	return false
+}
+
 host_window_will_close :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
 	context = runtime.default_context()
 	window := window_for_delegate(self)
@@ -810,7 +825,7 @@ host_render :: proc(window: ^Window) {
 	if len(notice) == 0 && update_ready() {notice = fmt.tprintf("update %s will install when you quit", updater.prepared.manifest.version)}
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(window) {input_sel_start, input_sel_end = text_input.selection_bounds(&window.text_state, window.input_value)}
-	if !app.safe_mode {preview_update(&window.preview, &window.tree, app.device)}
+	if !app.safe_mode && !window.text_edit.active {preview_update(&window.preview, &window.tree, app.device)}
 	frame_dt := f32(time.duration_seconds(time.tick_since(window.frame_tick)))
 	if !window.frame_animated {frame_dt = 1.0/60}
 	window.frame_tick = time.tick_now()
@@ -821,13 +836,13 @@ host_render :: proc(window: ^Window) {
 	watch_follow()
 	window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics)
 	window.preview_cut_off = preview_text_cut_off(window, metrics)
-	if window.preview.focused && window.preview_cut_off {
+	if window.preview.focused && window.preview_cut_off || window.text_edit.active {
 		window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics, true)
 	}
 	window.preview_shown = window.preview_shown && window.preview.kind != .None && !app.safe_mode
 	if !preview_text_shown(window) {window.preview.focused = false}
 	preview_scroll_to(window, window.preview.scroll)
-	preview_view := preview_view_make(&window.preview, &window.renderer, scale, syntax_theme(syntax_theme_index(app.settings.syntax_theme)))
+	preview_view := preview_view_make(&window.preview, &window.renderer, scale, syntax_theme(syntax_theme_index(app.settings.syntax_theme)), &window.text_edit)
 	preview_view.focused = window.preview.focused
 	view_draw(&window.tree, &window.list, &window.text, metrics, View_State{
 		settings = host_settings_view(window),
@@ -1061,6 +1076,17 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		row_height = window.tree.row_height,
 		bar_height = 2*window.tree.row_height,
 	}
+	if window.text_edit.active {
+		if textedit_in_preview(window, point.x, point.y) {
+			textedit_mouse_down(window, point.x, point.y, int(event->clickCount()), window.shift_down)
+			host_request_frames(window, 2)
+			return
+		}
+		if window.text_edit.prompt != .None || !textedit_leave(window, .Exit) {
+			host_request_frames(window, 2)
+			return
+		}
+	}
 	if window.preview_shown && point.x >= window.preview_rect.x && point.x < window.preview_rect.x+window.preview_rect.w && point.y >= window.preview_rect.y && point.y < window.preview_rect.y+window.preview_rect.h {return}
 	if window.edit_mode != .None {
 		edit_commit(window)
@@ -1109,7 +1135,20 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 
 host_mouse_dragged :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	context = runtime.default_context()
-	if window := window_for_view(self); window != nil {host_update_hover(window, host_pointer_from_event(window, event))}
+	window := window_for_view(self)
+	if window == nil {return}
+	point := host_pointer_from_event(window, event)
+	if window.text_edit.active && window.text_edit.dragging {
+		textedit_mouse_dragged(window, point.x, point.y)
+		host_request_frames(window, 2)
+		return
+	}
+	host_update_hover(window, point)
+}
+
+host_mouse_up :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
+	context = runtime.default_context()
+	if window := window_for_view(self); window != nil {window.text_edit.dragging = false}
 }
 
 WHEEL_ROWS_MAX :: 24
@@ -1173,6 +1212,16 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	if overlay_key(window, event, key, command, option, control, shift) {return}
+	if window.text_edit.active {
+		if command && (key == 13 || key == 12) && !textedit_leave(window, key == 13 ? .Close : .Quit) {
+			host_request_frames(window, 2)
+			return
+		}
+		if window.text_edit.active && textedit_key(window, event, key, command, option, control, shift) {
+			host_request_frames(window, 2)
+			return
+		}
+	}
 	if window.edit_mode != .None && command && (key == 13 || key == 12) {
 		if key == 13 {window.ns_window->close()} else {app.application->terminate(nil)}
 		return
@@ -1208,6 +1257,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		return
 	}
 	switch {
+	case command && key == 14:
+		textedit_begin(window)
 	case command && key == 13:
 		window.ns_window->close()
 		return

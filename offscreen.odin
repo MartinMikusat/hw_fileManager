@@ -8,6 +8,7 @@ import "core:strings"
 import "core:time"
 import NS "core:sys/darwin/Foundation"
 import MTL "vendor:darwin/Metal"
+import text_input "components:text_input"
 import devlog "devlog:."
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
@@ -46,6 +47,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	sort_menu := false
 	safe_mode := false
 	select_name := ""
+	editing := false
+	edit_caret, edit_anchor := 0, -1
 	gather_names: [dynamic]string
 	defer delete(gather_names)
 	for argument in arguments[1:] {
@@ -72,6 +75,16 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			select_name = strings.trim_prefix(argument, "--select=")
 		case strings.has_prefix(argument, "--gather="):
 			append(&gather_names, strings.trim_prefix(argument, "--gather="))
+		case argument == "--edit":
+			editing = true
+		case strings.has_prefix(argument, "--caret="):
+			parsed, ok := strconv.parse_int(strings.trim_prefix(argument, "--caret="))
+			if !ok || parsed < 0 {return false}
+			edit_caret = parsed
+		case strings.has_prefix(argument, "--anchor="):
+			parsed, ok := strconv.parse_int(strings.trim_prefix(argument, "--anchor="))
+			if !ok || parsed < 0 {return false}
+			edit_anchor = parsed
 		case argument == "--settings":
 			settings_open = true
 		case argument == "--sort-menu":
@@ -137,6 +150,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if entry, ok := tree_selected_entry(&tree); ok {current_gathered = path_list_contains(gather_paths[:], entry.path)}
 	preview: Preview
 	defer preview_clear(&preview)
+	text_edit: Text_Edit
+	defer textedit_free(&text_edit)
 
 	pixel_width := int(f32(width)*scale)
 	pixel_height := int(f32(height)*scale)
@@ -160,9 +175,14 @@ run_offscreen :: proc(arguments: []string) -> bool {
 		draw.list_reset(&list)
 		preview_update(&preview, &tree, device)
 		for !view_layout(&tree, metrics) {}
-		preview_rect, preview_shown := view_preview_rect(&tree, metrics)
+		if editing && !text_edit.active {
+			entry, ok := tree_selected_entry(&tree)
+			if !ok || len(textedit_open(&text_edit, entry.path)) > 0 {return false}
+			text_input.set_selection(&text_edit.state, textedit_text(&text_edit), edit_anchor >= 0 ? edit_anchor : edit_caret, edit_caret)
+		}
+		preview_rect, preview_shown := view_preview_rect(&tree, metrics, editing)
 		view_draw(&tree, &list, &text, metrics, View_State{
-			preview = preview_view_make(&preview, &renderer, scale, syntax_theme(syntax_theme_index(settings.syntax_theme))),
+			preview = preview_view_make(&preview, &renderer, scale, syntax_theme(syntax_theme_index(settings.syntax_theme)), &text_edit),
 			preview_rect = preview_rect,
 			preview_shown = preview_shown && preview.kind != .None,
 			clip_paths = nil,

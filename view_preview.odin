@@ -22,6 +22,13 @@ Preview_View :: struct {
 	scroll:  f32,
 	focused: bool,
 	theme:   Syntax_Theme,
+	// edit is the editor while the text preview is being edited; it replaces lines.
+	edit:    ^Text_Edit,
+}
+
+// view_preview_area is the content area inside the preview panel.
+view_preview_area :: proc(rect: draw.Rect) -> draw.Rect {
+	return {rect.x+2*COLUMN_PAD, rect.y+COLUMN_PAD, rect.w-3*COLUMN_PAD, rect.h-2*COLUMN_PAD}
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
@@ -43,7 +50,7 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	draw.solid(list, view_rect_draw(rect, metrics), COLOR_BACKGROUND, edge_softness = 0)
 	// The panel reaches the window edge so no column peeks out beside it; the
 	// content keeps the usual inset, and is clipped to it, wide glyphs included.
-	area := draw.Rect{rect.x+2*COLUMN_PAD, rect.y+COLUMN_PAD, rect.w-3*COLUMN_PAD, rect.h-2*COLUMN_PAD}
+	area := view_preview_area(rect)
 	draw.push_clip(list, view_rect_draw(area, metrics))
 	defer draw.pop_clip(list)
 	switch preview.kind {
@@ -51,6 +58,10 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	case .Cloud:
 		view_draw_text(text, list, "In iCloud, not downloaded", area.x, area.y, tree.row_height, tree.font_size, COLOR_DIM, metrics.height, area.w)
 	case .Text:
+		if preview.edit != nil {
+			textedit_draw(tree, list, text, area, preview.edit, preview.scroll, preview.theme, metrics)
+			return
+		}
 		rows := int(area.h/tree.row_height)
 		columns := int(area.w/metrics.char_advance)
 		first := int(preview.scroll)
@@ -83,8 +94,8 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 }
 
 // preview_view_make registers the preview texture for this frame's draw pass.
-preview_view_make :: proc(preview: ^Preview, renderer: ^metal.Renderer, scale: f32, theme: Syntax_Theme) -> Preview_View {
-	view := Preview_View{theme = theme, kind = preview.kind, scroll = preview.scroll, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale}
+preview_view_make :: proc(preview: ^Preview, renderer: ^metal.Renderer, scale: f32, theme: Syntax_Theme, edit: ^Text_Edit = nil) -> Preview_View {
+	view := Preview_View{theme = theme, kind = preview.kind, scroll = preview.scroll, lines = preview.lines[:], text = preview.text, kinds = preview.kinds, width = preview.width, height = preview.height, scale = scale, edit = edit != nil && edit.active ? edit : nil}
 	if preview.kind == .Image {view.texture = metal.register_texture(renderer, rawptr(preview.texture))}
 	return view
 }

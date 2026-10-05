@@ -210,7 +210,11 @@ preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 		return
 	}
 	if preview.path == entry.path && preview.modified == entry.modified {return}
+	// A reload of the same file (it changed, or editing ended) keeps the view where it was.
+	reloading := preview.path == entry.path
+	scroll, focused := preview.scroll, preview.focused
 	preview_clear(preview)
+	defer if reloading {preview.scroll, preview.focused = scroll, focused}
 	started := time.tick_now()
 	defer devlog.sample_since(devlog.global(), {feature = "files", operation = "preview"}, started)
 	preview.path = strings.clone(entry.path)

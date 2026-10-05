@@ -11,13 +11,20 @@ preview_text_shown :: proc(host: ^Window) -> bool {
 	return host.preview_shown && host.preview.kind == .Text
 }
 
+// preview_line_count is the number of lines the preview scrolls through: the
+// editor's while editing.
+preview_line_count :: proc(host: ^Window) -> int {
+	if host.text_edit.active {return textedit_line_count(&host.text_edit)}
+	return len(host.preview.lines)
+}
+
 preview_rows :: proc(host: ^Window) -> int {
 	area_height := host.preview_rect.h-2*COLUMN_PAD
 	return max(int(area_height/host.tree.row_height), 1)
 }
 
 preview_scroll_to :: proc(host: ^Window, line: f32) {
-	limit := f32(max(len(host.preview.lines)-preview_rows(host), 0))
+	limit := f32(max(preview_line_count(host)-preview_rows(host), 0))
 	host.preview.scroll = clamp(line, 0, limit)
 }
 

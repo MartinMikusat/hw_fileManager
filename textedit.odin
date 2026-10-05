@@ -64,7 +64,21 @@ Text_Edit :: struct {
 	hscroll:  int,
 	prompt:   Text_Edit_Prompt,
 	then:     Text_Edit_Then,
+	// pending: a Leave prompt is being resolved, so `then` resumes once saved or discarded.
+	pending:  bool,
+	// goal is the column vertical movement aims for; -1 until a vertical move sets it.
+	goal:     int,
 	dragging: bool,
+	// Anchor range of the click that started a drag, and its granularity.
+	drag_start: int,
+	drag_end:   int,
+	drag_unit:  Text_Edit_Unit,
+}
+
+Text_Edit_Unit :: enum {
+	Character,
+	Word,
+	Line,
 }
 
 textedit_text :: proc(edit: ^Text_Edit) -> string {
@@ -158,6 +172,7 @@ textedit_open :: proc(edit: ^Text_Edit, path: string) -> (reason: string) {
 	edit.modified = info.modification_time
 	edit.language = highlight_language(filepath.base(path))
 	edit.stale = true
+	edit.goal = -1
 	_ = text_input.focus(&edit.state, TEXTEDIT_FIELD, "")
 	text_input.collapse_selection(&edit.state, "", 0)
 	textedit_sync(edit)
