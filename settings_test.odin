@@ -132,8 +132,8 @@ syntax_themes_are_distinct_named_and_step_around :: proc(t: ^testing.T) {
 	testing.expect_value(t, syntax_theme_index("Monokai"), 2)
 	testing.expect_value(t, syntax_theme_index("No such theme"), 0)
 	testing.expect_value(t, syntax_theme_index(""), 0)
-	testing.expect_value(t, syntax_theme_step("Default", -1), "Tokyo Night")
-	testing.expect_value(t, syntax_theme_step("Tokyo Night", 1), "Default")
+	testing.expect_value(t, syntax_theme_step("Default", -1), "Kintsugi Dark Flared")
+	testing.expect_value(t, syntax_theme_step("Kintsugi Dark Flared", 1), "Default")
 	testing.expect_value(t, syntax_theme_step("", 1), "Gruvbox")
 	for index in 0 ..< len(SYNTAX_THEME_NAMES) {
 		colors := syntax_theme(index)

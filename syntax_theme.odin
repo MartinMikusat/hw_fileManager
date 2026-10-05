@@ -2,7 +2,7 @@ package file_manager
 
 import draw "ui_framework:draw"
 
-SYNTAX_THEME_NAMES := [?]string{"Default", "Gruvbox", "Monokai", "Solarized", "Nord", "Dracula", "One Dark", "Tokyo Night"}
+SYNTAX_THEME_NAMES := [?]string{"Default", "Gruvbox", "Monokai", "Solarized", "Nord", "Dracula", "One Dark", "Tokyo Night", "Kintsugi Dark Flared"}
 
 Syntax_Theme :: [Syntax_Kind]draw.Color
 
@@ -42,6 +42,7 @@ syntax_theme :: proc(index: int) -> Syntax_Theme {
 	case "Dracula":     return palette(0xf8f8f2, 0xff79c6, 0x8be9fd, 0x50fa7b, 0xf1fa8c, 0xbd93f9, 0x6272a4, 0xff5555, 0xff79c6, 0xffb86c)
 	case "One Dark":    return palette(0xabb2bf, 0xc678dd, 0xe5c07b, 0x61afef, 0x98c379, 0xd19a66, 0x5c6370, 0x56b6c2, 0xe06c75, 0xbe5046)
 	case "Tokyo Night": return palette(0xc0caf5, 0xbb9af7, 0x2ac3de, 0x7aa2f7, 0x9ece6a, 0xff9e64, 0x565f89, 0x7dcfff, 0xf7768e, 0x73daca)
+	case "Kintsugi Dark Flared": return palette(0xbcac8f, 0xd66848, 0xdbad49, 0x798283, 0xcc7f66, 0xdb9833, 0x636363, 0x678e87, 0xdbad49, 0xe08542)
 	}
 	return {
 		.Plain = COLOR_TEXT, .Keyword = COLOR_SYNTAX_KEYWORD, .Type = COLOR_SYNTAX_TYPE, .Function = COLOR_SYNTAX_FUNCTION,
