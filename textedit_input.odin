@@ -21,9 +21,11 @@ textedit_begin :: proc(window: ^Window) {
 	textedit_reveal(window)
 }
 
-// textedit_end closes the editor and has the preview reload the file from disk.
+// textedit_end closes the editor, hands the focus back to the tree and has the
+// preview reload the file from disk.
 textedit_end :: proc(window: ^Window) {
 	textedit_free(&window.text_edit)
+	window.preview.focused = false
 	window.preview.modified = {}
 }
 
