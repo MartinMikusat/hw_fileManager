@@ -108,6 +108,7 @@ textedit_prompt_key :: proc(window: ^Window, key: uint) {
 // textedit_reveal scrolls so the caret is visible.
 textedit_reveal :: proc(window: ^Window) {
 	edit := &window.text_edit
+	if !edit.active {return}
 	text := textedit_text(edit)
 	caret := textedit_caret(edit)
 	line := textedit_line_of(edit, caret)
