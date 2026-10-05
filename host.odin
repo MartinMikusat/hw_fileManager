@@ -418,6 +418,7 @@ host_register_classes :: proc() -> (delegate_class, view_class: NS.Class, ok: bo
 	if !host_add_method(delegate_class, "windowDidResize:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeBackingProperties:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
 	if !host_add_method(delegate_class, "windowDidChangeScreen:", rawptr(host_surface_changed), "v@:@") {return nil, nil, false}
+	if !host_add_method(delegate_class, "applicationDidChangeScreenParameters:", rawptr(host_screens_changed), "v@:@") {return nil, nil, false}
 	NS.objc_registerClassPair(delegate_class)
 
 	view_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "FileManagerView", 0)
@@ -1324,6 +1325,44 @@ host_new_window :: proc(source: ^Window) -> ^Window {
 		if entry, ok := tree_selected_entry(&source.tree); ok && entry.is_dir {start = entry.path} else {start = source.tree.columns[source.tree.active].dir}
 	}
 	return window_create(start, ephemeral = true)
+}
+
+// host_fit_frame shrinks a frame to the screen it overlaps most and moves it
+// inside that screen's visible area, so a frame saved on another display
+// layout never leaves the window with no edge to grab.
+host_fit_frame :: proc(frame: NS.Rect) -> NS.Rect {
+	screens := NS.Screen_screens()
+	best: ^NS.Screen
+	best_area := NS.Float(-1)
+	if screens != nil {
+		for i in 0..<screens->count() {
+			screen := (^NS.Screen)(screens->object(i))
+			visible := screen->visibleFrame()
+			width := min(frame.origin.x+frame.size.width, visible.origin.x+visible.size.width) - max(frame.origin.x, visible.origin.x)
+			height := min(frame.origin.y+frame.size.height, visible.origin.y+visible.size.height) - max(frame.origin.y, visible.origin.y)
+			area := max(width, 0)*max(height, 0)
+			if area > best_area {best, best_area = screen, area}
+		}
+	}
+	if best == nil {best = NS.Screen_mainScreen()}
+	if best == nil {return frame}
+	visible := best->visibleFrame()
+	fitted := frame
+	fitted.size.width = min(frame.size.width, max(visible.size.width, WINDOW_MIN_WIDTH))
+	fitted.size.height = min(frame.size.height, max(visible.size.height, WINDOW_MIN_HEIGHT))
+	fitted.origin.x = max(visible.origin.x, min(frame.origin.x, visible.origin.x+visible.size.width-fitted.size.width))
+	fitted.origin.y = max(visible.origin.y, min(frame.origin.y, visible.origin.y+visible.size.height-fitted.size.height))
+	return fitted
+}
+
+host_screens_changed :: proc "c" (self: NS.id, cmd: NS.SEL, notification: ^NS.Notification) {
+	context = runtime.default_context()
+	for window in app.windows {
+		if window.ns_window == nil {continue}
+		current := window.ns_window->frame()
+		fitted := host_fit_frame(current)
+		if fitted != current {window.ns_window->setFrame(fitted, true)}
+	}
 }
 
 // host_place_new_window puts an ephemeral window on the right of the screen,
