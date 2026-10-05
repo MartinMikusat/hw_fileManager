@@ -109,6 +109,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 
 	settings := settings_defaults()
 	_ = settings_load(settings_path(context.temp_allocator), &settings)
+	ui_theme_apply(settings.syntax_theme)
 
 	text: coretext.Context
 	coretext.context_init(&text)

@@ -13,20 +13,20 @@ NAME_MAX_CHARS :: 30
 CONTROL_INSET_CELLS :: f32(1)
 CONTROL_CELLS :: f32(3)
 
-COLOR_BACKGROUND    :: draw.Color{0.043, 0.043, 0.051, 1.0}
-COLOR_TEXT          :: draw.Color{0.855, 0.855, 0.871, 1.0}
-COLOR_DIM           :: draw.Color{0.510, 0.510, 0.541, 1.0}
-COLOR_RECENT        :: draw.Color{0.427, 0.620, 0.973, 1.0}
-COLOR_SELECTED      :: draw.Color{1.0, 1.0, 1.0, 1.0}
-COLOR_SELECTED_ROW  :: draw.Color{0.780, 0.100, 0.130, 1.0}
-COLOR_SELECTION_BG  :: draw.Color{0.102, 0.125, 0.180, 1.0}
-COLOR_SEARCH        :: draw.Color{0.420, 0.860, 0.790, 1.0}
-COLOR_RED           :: draw.Color{1.0, 0.230, 0.230, 1.0}
-COLOR_CARET         :: draw.Color{0.855, 0.855, 0.871, 1.0}
-COLOR_SELECTION_INK :: draw.Color{0.420, 0.860, 0.790, 0.35}
-COLOR_CONNECTOR     :: draw.Color{0.243, 0.400, 0.663, 1.0}
-COLOR_CONNECTOR_CONTEXT :: draw.Color{0.243, 0.400, 0.663, 0.5}
-COLOR_CONNECTOR_HOT :: draw.Color{0.494, 0.694, 0.996, 1.0}
+COLOR_BACKGROUND    := draw.Color{0.043, 0.043, 0.051, 1.0}
+COLOR_TEXT          := draw.Color{0.855, 0.855, 0.871, 1.0}
+COLOR_DIM           := draw.Color{0.510, 0.510, 0.541, 1.0}
+COLOR_RECENT        := draw.Color{0.427, 0.620, 0.973, 1.0}
+COLOR_SELECTED      := draw.Color{1.0, 1.0, 1.0, 1.0}
+COLOR_SELECTED_ROW  := draw.Color{0.780, 0.100, 0.130, 1.0}
+COLOR_SELECTION_BG  := draw.Color{0.102, 0.125, 0.180, 1.0}
+COLOR_SEARCH        := draw.Color{0.420, 0.860, 0.790, 1.0}
+COLOR_RED           := draw.Color{1.0, 0.230, 0.230, 1.0}
+COLOR_CARET         := draw.Color{0.855, 0.855, 0.871, 1.0}
+COLOR_SELECTION_INK := draw.Color{0.420, 0.860, 0.790, 0.35}
+COLOR_CONNECTOR     := draw.Color{0.243, 0.400, 0.663, 1.0}
+COLOR_CONNECTOR_CONTEXT := draw.Color{0.243, 0.400, 0.663, 0.5}
+COLOR_CONNECTOR_HOT := draw.Color{0.494, 0.694, 0.996, 1.0}
 
 COLOR_SYNTAX_KEYWORD   :: draw.Color{0.780, 0.560, 0.950, 1.0}
 COLOR_SYNTAX_TYPE      :: draw.Color{0.420, 0.860, 0.790, 1.0}

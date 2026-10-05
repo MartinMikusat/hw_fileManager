@@ -465,6 +465,7 @@ app_initialize :: proc() -> bool {
 	quit_on_sigterm()
 
 	app.settings = settings_defaults()
+	ui_theme_apply(app.settings.syntax_theme)
 	_ = settings_load(settings_path(context.temp_allocator), &app.settings)
 	app.safe_mode = diag.safe_update_count(diagnostics_config().app_name) >= diag.SAFE_MODE_CRASHES
 	text_tracking = f32(app.settings.letter_spacing)/10

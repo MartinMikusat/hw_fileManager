@@ -168,6 +168,7 @@ settings_panel_syntax :: proc(direction: int) {
 	next := syntax_theme_step(app.settings.syntax_theme, direction)
 	delete(app.settings.syntax_theme)
 	app.settings.syntax_theme = strings.clone(next)
+	ui_theme_apply(app.settings.syntax_theme)
 	host_save_settings()
 	for window in app.windows {host_request_frames(window, 2)}
 }

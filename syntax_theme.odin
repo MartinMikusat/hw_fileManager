@@ -50,3 +50,44 @@ syntax_theme :: proc(index: int) -> Syntax_Theme {
 		.Tag = COLOR_SYNTAX_TAG, .Property = COLOR_SYNTAX_PROPERTY,
 	}
 }
+
+Ui_Palette :: struct {
+	background, text, dim, recent, selected, selected_row, selection_bg, search, red, caret, selection_ink: draw.Color,
+	connector, connector_context, connector_hot: draw.Color,
+}
+
+ui_palette_current :: proc() -> Ui_Palette {
+	return {
+		COLOR_BACKGROUND, COLOR_TEXT, COLOR_DIM, COLOR_RECENT, COLOR_SELECTED, COLOR_SELECTED_ROW, COLOR_SELECTION_BG,
+		COLOR_SEARCH, COLOR_RED, COLOR_CARET, COLOR_SELECTION_INK, COLOR_CONNECTOR, COLOR_CONNECTOR_CONTEXT, COLOR_CONNECTOR_HOT,
+	}
+}
+
+ui_palette_set :: proc(palette: Ui_Palette) {
+	COLOR_BACKGROUND, COLOR_TEXT, COLOR_DIM, COLOR_RECENT, COLOR_SELECTED, COLOR_SELECTED_ROW, COLOR_SELECTION_BG = palette.background, palette.text, palette.dim, palette.recent, palette.selected, palette.selected_row, palette.selection_bg
+	COLOR_SEARCH, COLOR_RED, COLOR_CARET, COLOR_SELECTION_INK = palette.search, palette.red, palette.caret, palette.selection_ink
+	COLOR_CONNECTOR, COLOR_CONNECTOR_CONTEXT, COLOR_CONNECTOR_HOT = palette.connector, palette.connector_context, palette.connector_hot
+}
+
+ui_palette_default: Ui_Palette
+ui_palette_default_taken: bool
+
+// ui_theme_apply recolours the whole app for a theme name. Themes other than
+// Kintsugi Dark Flared keep the app's own palette and only change preview tokens.
+ui_theme_apply :: proc(name: string) {
+	if !ui_palette_default_taken {
+		ui_palette_default = ui_palette_current()
+		ui_palette_default_taken = true
+	}
+	if name != "Kintsugi Dark Flared" {
+		ui_palette_set(ui_palette_default)
+		return
+	}
+	search := rgb(0x6ac6f2)
+	ui_palette_set({
+		background = rgb(0x131314), text = rgb(0xcacac2), dim = rgb(0x85806b), recent = rgb(0xdbad49), selected = rgb(0xffffff),
+		selected_row = rgb(0xd66848), selection_bg = rgb(0x2a2f35), search = search, red = rgb(0xe0644a), caret = rgb(0xd4a943),
+		selection_ink = {search[0], search[1], search[2], 0.35},
+		connector = rgb(0xa8873a), connector_context = {0.659, 0.529, 0.227, 0.5}, connector_hot = rgb(0xdbad49),
+	})
+}
