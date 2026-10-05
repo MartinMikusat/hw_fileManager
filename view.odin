@@ -113,7 +113,7 @@ SAFE_DISMISS_LABEL :: "[Dismiss]"
 SAFE_RESET_LABEL :: "[Reset settings]"
 SAFE_LABELS :: [4]string{SAFE_COPY_LABEL, SAFE_EXPORT_LABEL, SAFE_DISMISS_LABEL, SAFE_RESET_LABEL}
 
-SETTINGS_LABEL :: "[⌘, Settings]"
+settings_label :: proc() -> string {return app.settings.hints_off ? "[Settings]" : "[⌘, Settings]"}
 MINUS_LABEL :: "[-]"
 PLUS_LABEL :: "[+]"
 SETTINGS_TAB_GENERAL_LABEL :: "[General]"
