@@ -1238,14 +1238,20 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 			return
 		}
 	}
-	if !command && !control {
+	vim_move := false
+	if window.input_mode == .None && !command && !control && !option && !shift {
+		key, vim_move = action_vim_move(key)
+	}
+	if !command && !control && !vim_move {
 		if characters := event->characters(); characters != nil {
 			if text := NS.String_odinString(characters); len(text) == 1 && text[0] >= 0x20 && text[0] < 0x7f {
 				switch {
 				case text[0] == '/' && window.input_mode == .None:
 					search_begin(window)
-				case window.input_mode == .None && action_is_number_key(key):
-					// Numbered action shortcuts are handled in the switch below.
+				case text[0] == ':' && window.input_mode == .None:
+					input_begin(window, .Cd)
+				case window.input_mode == .None && action_is_key(key):
+					// Action shortcuts are handled in the switch below.
 				case window.input_mode == .None:
 					input_begin(window, .Cd)
 					_ = text_input.insert_text(&window.text_state, &window.input_value, text)
@@ -1299,11 +1305,11 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 	case key == 48:
 		if window.input_mode == .Cd {cd_complete(window)}
-	case key == 45:
-		if window.input_mode == .Search && window.search_committed {search_next(window, shift ? -1 : 1)}
-	case key == 18, key == 19, key == 20, key == 21, key == 23, key == 22, key == 26, key == 28, key == 25, key == 29:
-		if window.input_mode == .None {
-			if kind, ok := action_number_key_code(key); ok {action_perform(window, kind, shift)}
+	case key == 45 && window.input_mode == .Search:
+		if window.search_committed {search_next(window, shift ? -1 : 1)}
+	case action_is_key(key):
+		if window.input_mode == .None && !option {
+			if kind, ok := action_key_code(key); ok {action_perform(window, kind, shift)}
 		}
 	case key == 115:
 		_ = host_select_index(window, 0)

@@ -26,47 +26,59 @@ Action_Kind :: enum {
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
 // something is gathered. Clear lives in the gather panel, not the bar.
 ACTION_BAR_ORDER := [9]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal, .Open}
-GATHER_CLEAR_LABEL :: "[8 Clear]"
+GATHER_CLEAR_LABEL :: "[c Clear]"
 
 action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
 	switch kind {
-	case .Copy:    return "[1 Copy]"
-	case .Cut:     return "[2 Cut]"
-	case .Paste:   return "[3 Paste]"
-	case .Rename:  return "[4 Rename]"
-	case .NewFile: return shift ? "[⇧5 New Folder]" : "[5 New File]"
-	case .Gather:  return ungather ? "[6 Ungather]" : "[6 Gather]"
-	case .Trash:   return shift ? "[⇧7 Delete]" : "[7 Trash]"
+	case .Copy:    return "[y Copy]"
+	case .Cut:     return "[x Cut]"
+	case .Paste:   return "[p Paste]"
+	case .Rename:  return "[r Rename]"
+	case .NewFile: return shift ? "[N New Folder]" : "[n New File]"
+	case .Gather:  return ungather ? "[g Ungather]" : "[g Gather]"
+	case .Trash:   return shift ? "[D Delete]" : "[d Trash]"
 	case .Clear:   return GATHER_CLEAR_LABEL
-	case .Terminal: return "[9 Terminal]"
+	case .Terminal: return "[t Terminal]"
 	case .Refresh: return "[⌘R Refresh]"
 	case .NewWindow: return "[⌘N Window]"
-	case .Open:    return "[0 Open]"
+	case .Open:    return "[o Open]"
 	}
 	return ""
 }
 
-action_number_key_code :: proc(key: uint) -> (Action_Kind, bool) {
+// action_key_code maps a macOS key code to its vim-style shortcut.
+action_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	switch key {
-	case 18: return .Copy, true
-	case 19: return .Cut, true
-	case 20: return .Paste, true
-	case 21: return .Rename, true
-	case 23: return .NewFile, true
-	case 22: return .Gather, true
-	case 26: return .Trash, true
-	case 28: return .Clear, true
-	case 25: return .Terminal, true
-	case 29: return .Open, true
+	case 16: return .Copy, true
+	case 7:  return .Cut, true
+	case 35: return .Paste, true
+	case 15: return .Rename, true
+	case 45: return .NewFile, true
+	case 5:  return .Gather, true
+	case 2:  return .Trash, true
+	case 8:  return .Clear, true
+	case 17: return .Terminal, true
+	case 31: return .Open, true
 	}
 	return .Copy, false
 }
 
-// action_is_number_key reports whether the key is a numbered shortcut; Shift
-// keeps the same key code, so this also covers the shifted chords.
-action_is_number_key :: proc(key: uint) -> bool {
-	_, ok := action_number_key_code(key)
+// action_is_key reports whether the key is an action shortcut; Shift keeps the
+// same key code, so this also covers the shifted chords.
+action_is_key :: proc(key: uint) -> bool {
+	_, ok := action_key_code(key)
 	return ok
+}
+
+// action_vim_move maps h, j, k, l to the arrow key codes.
+action_vim_move :: proc(key: uint) -> (uint, bool) {
+	switch key {
+	case 4:  return 123, true
+	case 38: return 125, true
+	case 40: return 126, true
+	case 37: return 124, true
+	}
+	return key, false
 }
 
 action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kind) -> bool {
