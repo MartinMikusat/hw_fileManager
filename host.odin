@@ -1250,11 +1250,6 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 					search_begin(window)
 				case text[0] == ':' && window.input_mode == .None:
 					input_begin(window, .Cd)
-				case window.input_mode == .None && action_is_key(key):
-					// Action shortcuts are handled in the switch below.
-				case window.input_mode == .None:
-					input_begin(window, .Cd)
-					_ = text_input.insert_text(&window.text_state, &window.input_value, text)
 				}
 			}
 		}
