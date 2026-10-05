@@ -14,6 +14,8 @@ Settings :: struct {
 	// Terminal app opened by the Terminal action, owned; empty means the first installed.
 	terminal:  string,
 	animations_off: bool,
+	// Hides the key letters on the action bar labels.
+	hints_off: bool,
 	// App the Open action uses for text files, owned; empty means the system default.
 	editor:    string,
 	// Name of the syntax theme for previews, owned; empty or unknown means Default.
@@ -44,6 +46,7 @@ Settings_Document :: struct {
 	place:         string `json:"place"`,
 	terminal:      string `json:"terminal"`,
 	animations_off: bool `json:"animations_off"`,
+	hints_off:     bool `json:"hints_off"`,
 	editor:        string `json:"editor"`,
 	syntax_theme:  string `json:"syntax_theme"`,
 	font_family:   string `json:"font_family"`,
@@ -125,6 +128,7 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		settings.place = document.place
 	}
 	settings.animations_off = document.animations_off
+	settings.hints_off = document.hints_off
 	if len(document.font_family) > 0 {
 		delete(settings.font_family)
 		settings.font_family = document.font_family
@@ -171,6 +175,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		place = settings.place,
 		terminal = settings.terminal,
 		animations_off = settings.animations_off,
+		hints_off = settings.hints_off,
 		editor = settings.editor,
 		syntax_theme = settings.syntax_theme,
 		font_family = settings.font_family,

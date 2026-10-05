@@ -26,22 +26,28 @@ Action_Kind :: enum {
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
 // something is gathered. Clear lives in the gather panel, not the bar.
 ACTION_BAR_ORDER := [9]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal, .Open}
-GATHER_CLEAR_LABEL :: "[c Clear]"
 
 action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
+	plain := app.settings.hints_off
 	switch kind {
-	case .Copy:    return "[y Copy]"
-	case .Cut:     return "[x Cut]"
-	case .Paste:   return "[p Paste]"
-	case .Rename:  return "[r Rename]"
-	case .NewFile: return shift ? "[N New Folder]" : "[n New File]"
-	case .Gather:  return ungather ? "[g Ungather]" : "[g Gather]"
-	case .Trash:   return shift ? "[D Delete]" : "[d Trash]"
-	case .Clear:   return GATHER_CLEAR_LABEL
-	case .Terminal: return "[t Terminal]"
-	case .Refresh: return "[⌘R Refresh]"
-	case .NewWindow: return "[⌘N Window]"
-	case .Open:    return "[o Open]"
+	case .Copy:    return plain ? "[Copy]" : "[y Copy]"
+	case .Cut:     return plain ? "[Cut]" : "[x Cut]"
+	case .Paste:   return plain ? "[Paste]" : "[p Paste]"
+	case .Rename:  return plain ? "[Rename]" : "[r Rename]"
+	case .NewFile:
+		if shift {return plain ? "[New Folder]" : "[N New Folder]"}
+		return plain ? "[New File]" : "[n New File]"
+	case .Gather:
+		if ungather {return plain ? "[Ungather]" : "[g Ungather]"}
+		return plain ? "[Gather]" : "[g Gather]"
+	case .Trash:
+		if shift {return plain ? "[Delete]" : "[D Delete]"}
+		return plain ? "[Trash]" : "[d Trash]"
+	case .Clear:   return plain ? "[Clear]" : "[c Clear]"
+	case .Terminal: return plain ? "[Terminal]" : "[t Terminal]"
+	case .Refresh: return plain ? "[Refresh]" : "[⌘R Refresh]"
+	case .NewWindow: return plain ? "[Window]" : "[⌘N Window]"
+	case .Open:    return plain ? "[Open]" : "[o Open]"
 	}
 	return ""
 }

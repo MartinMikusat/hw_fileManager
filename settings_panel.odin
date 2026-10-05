@@ -206,6 +206,12 @@ settings_panel_animations :: proc() {
 	for window in app.windows {host_request_frames(window, 2)}
 }
 
+settings_panel_hints :: proc() {
+	app.settings.hints_off = !app.settings.hints_off
+	host_save_settings()
+	for window in app.windows {host_request_frames(window, 2)}
+}
+
 settings_panel_terminal :: proc(direction: int) {
 	next, ok := terminal_step(app.settings.terminal, app.terminals, direction)
 	if !ok {return}
@@ -249,6 +255,7 @@ settings_panel_click :: proc(window: ^Window, metrics: View_Metrics, point: ui.V
 	case .Previous: settings_panel_terminal(-1)
 	case .Next: settings_panel_terminal(1)
 	case .Animations: settings_panel_animations()
+	case .Hints: settings_panel_hints()
 	case .EditorPrevious: settings_panel_editor(-1)
 	case .EditorNext: settings_panel_editor(1)
 	case .FontPrevious: settings_panel_font_family(font_family_step(&font_catalog, family, -1))

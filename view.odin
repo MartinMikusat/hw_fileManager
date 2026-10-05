@@ -29,6 +29,7 @@ Settings_Hot :: enum {
 	Previous,
 	Next,
 	Animations,
+	Hints,
 	EditorPrevious,
 	EditorNext,
 	EditorCustom,
@@ -131,6 +132,7 @@ Settings_Row :: enum {
 	Spacing,
 	Terminal,
 	Animations,
+	Hints,
 	Editor,
 	Syntax,
 	CommandLine,
@@ -460,7 +462,7 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 	row := tree.row_height
 	pad := 2*ch
 	width := min(settings_panel_width, max(metrics.width-4*ch, 0))
-	height := 10*row+2*pad
+	height := 11*row+2*pad
 	layout := Settings_Layout{}
 	layout.panel = draw.Rect{(metrics.width-width)/2, (metrics.height-height)/2, width, height}
 	layout.title_top = layout.panel.y+pad
@@ -500,14 +502,16 @@ view_settings_layout :: proc(tree: ^Tree, metrics: View_Metrics, tab := Settings
 	case .General:
 		layout.tops[.Terminal] = first
 		layout.tops[.Animations] = first+row
-		layout.tops[.Editor] = first+2*row
-		layout.tops[.Syntax] = first+3*row
-		layout.tops[.CommandLine] = first+4*row
-		layout.tops[.Diagnostics] = first+5*row
-		layout.cli_hint_top = first+6*row
-		layout.hint_top = first+7*row
+		layout.tops[.Hints] = first+2*row
+		layout.tops[.Editor] = first+3*row
+		layout.tops[.Syntax] = first+4*row
+		layout.tops[.CommandLine] = first+5*row
+		layout.tops[.Diagnostics] = first+6*row
+		layout.cli_hint_top = first+7*row
+		layout.hint_top = first+8*row
 		stepper(&layout, layout.tops[.Terminal], right, button, ch, row, .Previous, .Next, {PREVIOUS_LABEL, NEXT_LABEL}, .Terminal)
 		add(&layout, {right-5*ch, layout.tops[.Animations], 5*ch, row}, .Animations, "", .Animations)
+		add(&layout, {right-5*ch, layout.tops[.Hints], 5*ch, row}, .Hints, "", .Hints)
 		stepper(&layout, layout.tops[.Editor], right, button, ch, row, .EditorPrevious, .EditorNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Editor)
 		add(&layout, {right-2*button-ch-ch-other, layout.tops[.Editor], other, row}, .EditorCustom, EDITOR_CUSTOM_LABEL, .Editor)
 		stepper(&layout, layout.tops[.Syntax], right, button, ch, row, .SyntaxPrevious, .SyntaxNext, {PREVIOUS_LABEL, NEXT_LABEL}, .Syntax)
@@ -900,7 +904,7 @@ view_draw_gather :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context,
 	draw.solid(list, view_rect_draw(layout.panel, metrics), COLOR_SELECTION_BG, edge_softness = 0)
 	view_draw_text(text, list, fmt.tprintf("Gathered (%d)", count), layout.header.x+column_pad, layout.header.y, layout.header.h, tree.font_size, COLOR_TEXT, metrics.height)
 	if state.gather_hot_clear {draw.solid(list, view_rect_draw(layout.clear, metrics), COLOR_TEXT, edge_softness = 0)}
-	view_draw_text(text, list, GATHER_CLEAR_LABEL, layout.clear.x, layout.clear.y, layout.clear.h, tree.font_size, state.gather_hot_clear ? COLOR_BACKGROUND : COLOR_DIM, metrics.height)
+	view_draw_text(text, list, action_label(.Clear), layout.clear.x, layout.clear.y, layout.clear.h, tree.font_size, state.gather_hot_clear ? COLOR_BACKGROUND : COLOR_DIM, metrics.height)
 	max_width := f32(NAME_MAX_CHARS)*metrics.char_advance
 	for index in 0 ..< layout.count {
 		rect := layout.rows[index]
@@ -1003,6 +1007,7 @@ view_draw_settings :: proc(
 		case .Spacing:    return fmt.tprintf("Letter spacing: %.1f pt", f32(settings.letter_spacing)/10)
 		case .Terminal:   return fmt.tprintf("Terminal: %s", settings.terminal)
 		case .Animations: return "Animations"
+		case .Hints:      return "Key hints"
 		case .Editor:     return fmt.tprintf("Text editor: %s", editor_label(settings.editor))
 		case .Syntax:     return fmt.tprintf("Syntax theme: %s", SYNTAX_THEME_NAMES[syntax_theme_index(settings.syntax_theme)])
 		case .CommandLine: return "Command line tool"
@@ -1019,7 +1024,7 @@ view_draw_settings :: proc(
 		return false
 	}
 
-	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Editor, .Syntax, .CommandLine, .Diagnostics}
+	rows_shown := state.settings_tab == .Font ? []Settings_Row{.Size, .Family, .Weight, .Width, .Line, .Spacing} : []Settings_Row{.Terminal, .Animations, .Hints, .Editor, .Syntax, .CommandLine, .Diagnostics}
 	for row in rows_shown {
 		// The label yields to the row's controls.
 		limit := layout.panel.x+layout.panel.w
@@ -1047,6 +1052,7 @@ view_draw_settings :: proc(
 		inverted := hot.settings_hot == control.hot && !disabled
 		label := control.label
 		if control.hot == .Animations {label = settings.animations_off ? "[off]" : "[on]"}
+		if control.hot == .Hints {label = settings.hints_off ? "[off]" : "[on]"}
 		if control.hot == .CliAction {label = state.cli_confirm ? CLI_CONFIRM_LABEL : (state.cli_installed ? CLI_REMOVE_LABEL : CLI_INSTALL_LABEL)}
 		color := disabled ? COLOR_DIM : COLOR_TEXT
 		if is_tab {

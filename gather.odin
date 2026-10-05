@@ -91,7 +91,7 @@ gather_panel_layout :: proc(metrics: View_Metrics, count: int) -> Gather_Panel {
 	if count > shown {height += row}
 	top := metrics.height-metrics.bar_height-height
 	panel := draw.Rect{metrics.width-width, top, width, height}
-	clear_width := f32(len(GATHER_CLEAR_LABEL))*metrics.char_advance
+	clear_width := f32(len(action_label(.Clear)))*metrics.char_advance
 	panel_hit := Gather_Panel{
 		panel = panel,
 		header = {panel.x, top, width, row},
