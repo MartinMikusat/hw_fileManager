@@ -224,7 +224,7 @@ tree_select :: proc(tree: ^Tree, column_index, entry_index: int, enter := true) 
 tree_move :: proc(tree: ^Tree, delta: int) -> bool {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return false}
 	column := &tree.columns[tree.active]
-	if len(column.entries) == 0 {return false}
+	if len(column.entries) == 0 {return (delta == 1 || delta == -1) && tree_move_to_sibling(tree, delta)}
 	next := clamp(column.selected+delta, 0, len(column.entries)-1)
 	if next == column.selected {
 		if delta == 1 || delta == -1 {return tree_move_to_sibling(tree, delta)}

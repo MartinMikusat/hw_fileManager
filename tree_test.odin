@@ -149,6 +149,22 @@ tree_move_continues_into_the_neighbouring_folder :: proc(t: ^testing.T) {
 }
 
 @(test)
+tree_move_leaves_an_empty_folder_for_its_neighbours :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+	testing.expect(t, os.make_directory(TREE_FIXTURE_ROOT+"/mid") == nil)
+
+	tree: Tree
+	tree_init(&tree)
+	defer tree_destroy(&tree)
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT+"/mid"))
+	testing.expect(t, !tree_move(&tree, 1))
+	testing.expect(t, tree_move(&tree, -1))
+	entry, ok := tree_selected_entry(&tree)
+	testing.expect(t, ok && entry.name == "two.txt")
+}
+
+@(test)
 trail_aligns_the_nearest_folder_end_with_its_row :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
