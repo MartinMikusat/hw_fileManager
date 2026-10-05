@@ -141,6 +141,9 @@ register_mono_font :: proc(text: ^coretext.Context) {
 measure_char_advance :: proc(text: ^coretext.Context, font_size: f32) -> f32 {
 	run := coretext.shape(text, FONT_MONO, "MMMMMMMMMM", font_size, text_tracking, 0, false)
 	if run == nil {return font_size*0.6}
+	if symbol := coretext.shape(text, FONT_MONO, "⌘⇧", font_size, text_tracking, 0, false); symbol != nil {
+		symbol_cells = symbol.metrics.width/(2*run.metrics.width/10)
+	}
 	return run.metrics.width/10
 }
 
@@ -762,7 +765,7 @@ host_request_all_frames :: proc(count: int) {
 }
 
 host_search_bounds :: proc(window: ^Window) -> (view_top, view_bottom: f32) {
-	return CHROME_HEIGHT, window.view_height-2*window.tree.row_height
+	return CHROME_HEIGHT, window.view_height-bar_height_of(window.tree.row_height)
 }
 
 host_render :: proc(window: ^Window) {
@@ -793,7 +796,7 @@ host_render :: proc(window: ^Window) {
 		height = height,
 		char_advance = measure_char_advance(&window.text, window.tree.font_size),
 		row_height = window.tree.row_height,
-		bar_height = 2*window.tree.row_height,
+		bar_height = bar_height_of(window.tree.row_height),
 	}
 	window.char_advance = metrics.char_advance
 	now := time.now()
@@ -919,7 +922,7 @@ host_update_hover :: proc(window: ^Window, point: ui.Vec2) {
 		height = window.view_height,
 		char_advance = window.char_advance,
 		row_height = window.tree.row_height,
-		bar_height = 2*window.tree.row_height,
+		bar_height = bar_height_of(window.tree.row_height),
 	}
 	hover := overlay_hover(window, metrics, point)
 	control := -1
@@ -1075,7 +1078,7 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		height = window.view_height,
 		char_advance = window.char_advance,
 		row_height = window.tree.row_height,
-		bar_height = 2*window.tree.row_height,
+		bar_height = bar_height_of(window.tree.row_height),
 	}
 	if window.text_edit.active {
 		if textedit_in_preview(window, point.x, point.y) {
@@ -1116,11 +1119,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		intrinsics.objc_send(nil, window.ns_window, "performWindowDragWithEvent:", event)
 		return
 	}
-	if point.y >= window.view_height-window.tree.row_height {
+	if point.y >= window.view_height-BAR_BOTTOM_PAD-window.tree.row_height && point.y < window.view_height-BAR_BOTTOM_PAD {
 		if kind, inside := action_bar_at(metrics, point, len(window.gather_paths) > 0, action_current_gathered(window), window.shift_down); inside {action_perform(window, kind, window.shift_down)}
 		return
 	}
-	if point.y >= window.view_height-2*window.tree.row_height {
+	if point.y >= window.view_height-bar_height_of(window.tree.row_height) {
 		input_reset(window)
 		host_request_frames(window, 1)
 		return

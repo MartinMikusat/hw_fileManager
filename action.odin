@@ -116,7 +116,7 @@ Action_Bar :: struct {
 // action_bar_layout are top-origin rects in the bottom row of the bar.
 action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool) -> Action_Bar {
 	bar: Action_Bar
-	top := metrics.height-metrics.row_height
+	top := metrics.height-BAR_BOTTOM_PAD-metrics.row_height
 	x := COLUMN_PAD
 	for kind in ACTION_BAR_ORDER {
 		if kind == .Trash && !gathered {continue}
@@ -128,7 +128,7 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 	}
 	// Shortcuts that already have a key sit at the right edge, without a number.
 	refresh_width := label_cells(action_label(.Refresh))*metrics.char_advance
-	refresh_x := metrics.width-COLUMN_PAD-refresh_width
+	refresh_x := metrics.width-metrics.char_advance-refresh_width
 	bar.kinds[bar.count] = .Refresh
 	bar.rects[bar.count] = {refresh_x, top, refresh_width, metrics.row_height}
 	bar.count += 1
@@ -140,7 +140,7 @@ action_bar_layout :: proc(metrics: View_Metrics, gathered, ungather, shift: bool
 }
 
 action_bar_at :: proc(metrics: View_Metrics, point: ui.Vec2, gathered, ungather, shift: bool) -> (Action_Kind, bool) {
-	top := metrics.height-metrics.row_height
+	top := metrics.height-BAR_BOTTOM_PAD-metrics.row_height
 	if point.y < top || point.y >= top+metrics.row_height {return .Copy, false}
 	bar := action_bar_layout(metrics, gathered, ungather, shift)
 	for index in 0 ..< bar.count {

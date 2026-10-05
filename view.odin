@@ -317,14 +317,19 @@ view_layout :: proc(tree: ^Tree, metrics: View_Metrics, edit := View_Edit{}, dt 
 	return complete
 }
 
-// label_cells is the width of a label in character cells. Symbols such as ⌘ and ⇧
-// come from a fallback font and are about 1.8 cells wide, so counting them as one
-// would run text past the edge it was aligned to.
+// symbol_cells is the measured width of ⌘ and ⇧ in character cells; they come
+// from a fallback font, so counting them as one cell would misalign right-aligned
+// labels. measure_char_advance refreshes it.
+symbol_cells := f32(1)
+
+// label_cells is the width of a label in character cells.
 label_cells :: proc(label: string) -> f32 {
 	cells := f32(0)
-	for character in label {cells += character < 0x2000 ? 1 : 1.8}
+	for character in label {cells += character < 0x2000 ? 1 : symbol_cells}
 	return cells
 }
+
+bar_height_of :: proc(row_height: f32) -> f32 {return 2*row_height+BAR_BOTTOM_PAD}
 
 // view_rect_draw flips a top-origin rect into the bottom-origin space the draw
 // list renders in. Chrome controls are the only rects kept bottom-origin.
