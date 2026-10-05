@@ -40,7 +40,7 @@ kind. Source lives at the repository root (`package file_manager`).
   signs, notarizes and packages `dist.noindex/<version>`; `publish dist.noindex/<version>` creates the GitHub
   release. Installed release apps check `releases/latest/download/update.json` hourly and swap
   in a staged update on quit (`update.odin`, `hw_odin_native_update`). Dev builds never update.
-  Publish only when the operator asks for a specific version.
+  Publish only when the operator asks; with no version named, release the next patch version.
 
 ## Agent skills
 
