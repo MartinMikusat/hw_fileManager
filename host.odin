@@ -1216,6 +1216,12 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		host_new_window(window)
 		return
 	}
+	// Cmd+plus and Cmd+minus (main and keypad) resize the font, also with a modal open.
+	if command && (key == 24 || key == 69 || key == 27 || key == 78) {
+		settings_panel_font_size(key == 24 || key == 69 ? 1 : -1)
+		host_request_frames(window, 2)
+		return
+	}
 	if overlay_key(window, event, key, command, option, control, shift) {return}
 	if window.text_edit.active {
 		if command && (key == 13 || key == 12) && !textedit_leave(window, key == 13 ? .Close : .Quit) {

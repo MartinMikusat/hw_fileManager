@@ -11,7 +11,7 @@
       "name": "hw_odin_ui_framework",
       "path": "../odin_libraries/hw_odin_ui_framework",
       "url": "https://github.com/MartinMikusat/hw_odin_ui_framework.git",
-      "revision": "97929e9933cb362e5dfb99650d6a8cd90e2fa71a"
+      "revision": "bdd1bd5145b2acd6cd0434ac4bb6fd659e6ae8e0"
     },
     {
       "name": "hw_odin_ui_components",
@@ -29,7 +29,7 @@
       "name": "hw_odin_native_update",
       "path": "../odin_libraries/hw_odin_native_update",
       "url": "https://github.com/MartinMikusat/hw_odin_native_update.git",
-      "revision": "009bc99def05b180d13b71a083a21d7557847765"
+      "revision": "7877779dd866d73ac5edacf9aad0107802b058bc"
     }
   ]
 }
