@@ -117,15 +117,16 @@ preview_is_image_name :: proc(name: string) -> bool {
 }
 
 // preview_read_text returns the start of a file as display text, with tabs
-// expanded and carriage returns dropped, or false for binary, empty or
-// unreadable files.
+// expanded and carriage returns dropped, or false for binary or unreadable
+// files. An empty file is empty text.
 preview_read_text :: proc(path: string, allocator := context.allocator) -> (string, bool) {
 	file, open_error := os.open(path)
 	if open_error != nil {return "", false}
 	defer os.close(file)
 	buffer := make([]u8, PREVIEW_TEXT_BYTES, context.temp_allocator)
 	count, read_error := os.read(file, buffer)
-	if count <= 0 || (read_error != nil && read_error != .EOF) {return "", false}
+	if read_error != nil && read_error != .EOF {return "", false}
+	if count <= 0 {return "", true}
 	data := buffer[:count]
 	for value in data {
 		if value == 0 {return "", false}

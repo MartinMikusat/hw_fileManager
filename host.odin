@@ -1397,12 +1397,13 @@ host_place_new_window :: proc(window: ^Window, cascade: int) {
 }
 
 // host_enter opens the selection: folders open as columns, text files take the
-// focus into their preview (when there is anything to scroll), and every other
+// focus into their preview when there is anything to scroll and otherwise start
+// editing, and every other
 // file opens in its default app.
 host_enter :: proc(window: ^Window) {
 	if entry, ok := tree_selected_entry(&window.tree); ok && !entry.is_dir {
 		if window.preview.kind == .Text {
-			_ = preview_focus_begin(window)
+			if !preview_focus_begin(window) {textedit_begin(window)}
 		} else {
 			action_open(window)
 		}
