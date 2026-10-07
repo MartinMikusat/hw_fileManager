@@ -1260,6 +1260,10 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 					search_begin(window)
 				case text[0] == ':' && window.input_mode == .None:
 					input_begin(window, .Cd)
+				case text[0] == 'i' && window.input_mode == .None && !option:
+					textedit_begin(window)
+					host_request_frames(window, 2)
+					return
 				}
 			}
 		}

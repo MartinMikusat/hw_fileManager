@@ -23,7 +23,7 @@ kind. Source lives at the repository root (`package file_manager`).
   Record failures once at their root cause, and never put credentials, payloads or
   full paths in a record.
 - A feature is a file-name prefix in this one package. Keep files small and cohesive.
-- `textedit_*` edits a text preview in place (Cmd+E, Cmd+S, Escape). Files over 8 MB, not UTF-8,
+- `textedit_*` edits a text preview in place (i or Cmd+E, Cmd+S, Escape). Files over 8 MB, not UTF-8,
   binary, read-only or with mixed line endings stay read-only. Typing arrives through the
   view's `NSTextInputClient` methods (`textedit_ime.odin`), so input methods work.
 - Interface verification is the operator's. Use

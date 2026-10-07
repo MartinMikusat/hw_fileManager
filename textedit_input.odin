@@ -5,7 +5,7 @@ import "core:strings"
 import NS "core:sys/darwin/Foundation"
 import text_input "components:text_input"
 
-// Cmd+E on a text preview opens it in the editor; Escape (or a click elsewhere)
+// i or Cmd+E on a text preview opens it in the editor; Escape (or a click elsewhere)
 // closes it, asking first when there are unsaved changes.
 
 // textedit_begin opens the selected text file for editing, or says why it cannot be.
