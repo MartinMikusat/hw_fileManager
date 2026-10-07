@@ -219,7 +219,7 @@ textedit_interpret :: proc(window: ^Window, event: ^NS.Event) {
 
 textedit_clipboard_copy :: proc(window: ^Window) {
 	edit := &window.text_edit
-	edit_clipboard_copy(window, textedit_text(edit))
+	edit_clipboard_copy(&edit.state, textedit_text(edit))
 }
 
 textedit_clipboard_paste :: proc(window: ^Window) {

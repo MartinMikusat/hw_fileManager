@@ -209,9 +209,9 @@ field_handle_key :: proc(host: ^Window, target: ^string, event: ^NS.Event, key: 
 	case command && key == 0:
 		text_input.set_selection(state, target^, 0, len(target^))
 	case command && key == 8:
-		edit_clipboard_copy(host, target^)
+		edit_clipboard_copy(&host.text_state, target^)
 	case command && key == 7:
-		edit_clipboard_copy(host, target^)
+		edit_clipboard_copy(&host.text_state, target^)
 		_ = text_input.remove_selection(state, target)
 	case command && key == 9:
 		edit_clipboard_paste(host, target)
@@ -275,8 +275,8 @@ edit_pasteboard :: proc() -> ^NS.Object {
 	return intrinsics.objc_send(^NS.Object, cast(^NS.Object)intrinsics.objc_find_class("NSPasteboard"), "generalPasteboard")
 }
 
-edit_clipboard_copy :: proc(host: ^Window, value: string) {
-	selected := text_input.selected_text(&host.text_state, value)
+edit_clipboard_copy :: proc(state: ^text_input.State, value: string) {
+	selected := text_input.selected_text(state, value)
 	if len(selected) == 0 {return}
 	pasteboard := edit_pasteboard()
 	if pasteboard == nil {return}
