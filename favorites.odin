@@ -6,8 +6,9 @@ import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 
-// favorites is the list of kept folders ("f" shows it, shift+F keeps or drops the
-// current folder). It takes the preview's place, so a preview hides it.
+// favorites is the list of kept folders ("f" on a folder keeps or drops it, on a
+// file or with shift it shows or hides the list). It takes the preview's place, so
+// a preview hides it.
 
 favorites_sync :: proc(window: ^Window) {
 	window.tree.favorites = app.settings.favorites
@@ -41,7 +42,7 @@ favorites_toggle_list :: proc(window: ^Window) {
 	window.tree.favorites_open = !window.tree.favorites_open
 }
 
-// favorites_toggle_current keeps the current folder, or drops it when kept, and
+// favorites_toggle_current keeps the selected folder, or drops it when kept, and
 // shows the list so the change is visible.
 favorites_toggle_current :: proc(window: ^Window) {
 	path := tree_current_directory(&window.tree)
@@ -72,6 +73,9 @@ view_draw_favorites :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Conte
 	defer draw.pop_clip(list)
 	current := tree_current_directory(tree)
 	searching := state.input_mode == .Search && len(state.input) > 0
+	if len(tree.favorites) == 0 {
+		view_draw_text(text, list, "f on a folder keeps it here", rect.x+2*column_pad, favorites_row_top(tree, 0), tree.row_height, tree.font_size, COLOR_DIM, metrics.height, rect.w-3*column_pad)
+	}
 	for path, row in tree.favorites {
 		top := favorites_row_top(tree, row)
 		if top > rect.y+rect.h {break}

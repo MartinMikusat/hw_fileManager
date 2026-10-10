@@ -50,7 +50,7 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .NewWindow: return plain ? "[Window]" : "[⌘N Window]"
 	case .Open:    return plain ? "[Open]" : "[o Open]"
 	case .Favorites:
-		if shift {return plain ? "[Keep Folder]" : "[F Keep Folder]"}
+		if shift {return plain ? "[List]" : "[F List]"}
 		return plain ? "[Favorites]" : "[f Favorites]"
 	}
 	return ""
@@ -183,7 +183,8 @@ action_perform :: proc(host: ^Window, kind: Action_Kind, shift := false) {
 	case .NewWindow: host_new_window(host)
 	case .Open:    action_open(host)
 	case .Favorites:
-		if shift {favorites_toggle_current(host)} else {favorites_toggle_list(host)}
+		entry, selected := tree_selected_entry(&host.tree)
+		if !shift && selected && entry.is_dir {favorites_toggle_current(host)} else {favorites_toggle_list(host)}
 	}
 	host_request_frames(host, 2)
 }

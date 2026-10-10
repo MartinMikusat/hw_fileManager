@@ -23,7 +23,7 @@ kind. Source lives at the repository root (`package file_manager`).
   Record failures once at their root cause, and never put credentials, payloads or
   full paths in a record.
 - A feature is a file-name prefix in this one package. Keep files small and cohesive.
-- `favorites.odin`: `f` shows the favorites list in the preview's place (a preview hides it), Shift+F keeps or drops the current folder; they persist in `settings.json` and `/` searches them. Columns before the active column's parent are not drawn.
+- `favorites.odin`: `f` on a folder keeps or drops it in the favorites list, `f` on a file or Shift+F shows the list in the preview's place (a preview hides it); they persist in `settings.json` and `/` searches them. Columns before the active column's parent are not drawn.
 - `textedit_*` edits a text preview in place (i or Cmd+E, Cmd+S, Escape). Files over 8 MB, not UTF-8,
   binary, read-only or with mixed line endings stay read-only. Typing arrives through the
   view's `NSTextInputClient` methods (`textedit_ime.odin`), so input methods work.
