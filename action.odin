@@ -21,11 +21,12 @@ Action_Kind :: enum {
 	Refresh,
 	NewWindow,
 	Open,
+	Favorites,
 }
 
 // ACTION_BAR_ORDER is the bottom row left to right; Trash only appears once
 // something is gathered. Clear lives in the gather panel, not the bar.
-ACTION_BAR_ORDER := [9]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal, .Open}
+ACTION_BAR_ORDER := [10]Action_Kind{.Copy, .Cut, .Paste, .Rename, .NewFile, .Gather, .Trash, .Terminal, .Open, .Favorites}
 
 action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> string {
 	plain := app.settings.hints_off
@@ -48,6 +49,9 @@ action_label :: proc(kind: Action_Kind, ungather := false, shift := false) -> st
 	case .Refresh: return plain ? "[Refresh]" : "[⌘R Refresh]"
 	case .NewWindow: return plain ? "[Window]" : "[⌘N Window]"
 	case .Open:    return plain ? "[Open]" : "[o Open]"
+	case .Favorites:
+		if shift {return plain ? "[Keep Folder]" : "[F Keep Folder]"}
+		return plain ? "[Favorites]" : "[f Favorites]"
 	}
 	return ""
 }
@@ -65,6 +69,7 @@ action_key_code :: proc(key: uint) -> (Action_Kind, bool) {
 	case 8:  return .Clear, true
 	case 17: return .Terminal, true
 	case 31: return .Open, true
+	case 3:  return .Favorites, true
 	}
 	return .Copy, false
 }
@@ -98,7 +103,7 @@ action_available :: proc(tree: ^Tree, gathered, has_clip: bool, kind: Action_Kin
 		return ok
 	case .Paste:
 		return has_clip
-	case .Refresh, .NewWindow:
+	case .Refresh, .NewWindow, .Favorites:
 		return true
 	case .Open:
 		entry, ok := tree_selected_entry(tree)
@@ -177,6 +182,8 @@ action_perform :: proc(host: ^Window, kind: Action_Kind, shift := false) {
 	case .Refresh: _ = tree_refresh(&host.tree)
 	case .NewWindow: host_new_window(host)
 	case .Open:    action_open(host)
+	case .Favorites:
+		if shift {favorites_toggle_current(host)} else {favorites_toggle_list(host)}
 	}
 	host_request_frames(host, 2)
 }

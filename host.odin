@@ -1325,8 +1325,6 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if window.input_mode == .Cd {cd_complete(window)}
 	case key == 45 && window.input_mode == .Search:
 		if window.search_committed {search_next(window, shift ? -1 : 1)}
-	case key == 3 && window.input_mode == .None && !command && !control && !option:
-		if shift {favorites_toggle_current(window)} else {favorites_toggle_list(window)}
 	case action_is_key(key):
 		if window.input_mode == .None && !option {
 			if kind, ok := action_key_code(key); ok {action_perform(window, kind, shift)}
