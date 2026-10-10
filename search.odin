@@ -1,5 +1,7 @@
 package file_manager
 
+import "core:path/filepath"
+
 // search is the "/" prompt over the active column: substring matches highlight
 // and n/N step through them like vim's search.
 search_matches :: proc(entry: Entry, query: string) -> bool {
@@ -22,6 +24,7 @@ name_contains_fold :: proc(name, query: string) -> bool {
 }
 
 Search_Source :: enum {
+	Favorite,
 	Main,
 	Above,
 	Below,
@@ -44,7 +47,15 @@ search_items :: proc(tree: ^Tree, view_top, view_bottom: f32) -> []Search_Item {
 	visible := proc(y, row_height, view_top, view_bottom: f32) -> bool {
 		return y+row_height > view_top && y < view_bottom
 	}
-	for &column, index in tree.columns {
+	if tree.favorites_shown {
+		for _, row in tree.favorites {
+			if visible(favorites_row_top(tree, row), tree.row_height, view_top, view_bottom) {
+				append(&items, Search_Item{source = .Favorite, row = row})
+			}
+		}
+	}
+	for index in tree_first_visible(tree) ..< len(tree.columns) {
+		column := &tree.columns[index]
 		#reverse for block, block_index in column.above {
 			for _, row in block.entries {
 				if visible(block.y+f32(row)*tree.row_height, tree.row_height, view_top, view_bottom) {
@@ -76,8 +87,13 @@ search_items :: proc(tree: ^Tree, view_top, view_bottom: f32) -> []Search_Item {
 }
 
 search_item_entry :: proc(tree: ^Tree, item: Search_Item) -> Entry {
+	if item.source == .Favorite {
+		path := tree.favorites[item.row]
+		return {name = filepath.base(path), path = path, is_dir = true}
+	}
 	column := &tree.columns[item.column]
 	switch item.source {
+	case .Favorite: return {}
 	case .Main:  return column.entries[item.row]
 	case .Above: return column.above[item.block].entries[item.row]
 	case .Below: return column.below[item.block].entries[item.row]
@@ -115,16 +131,17 @@ search_begin :: proc(host: ^Window) {
 }
 
 // search_jump selects an on-screen row, entering the sibling folder it is listed
-// under when it is not in a column of its own, and keeps its parent column
-// visible when the row lands in the leftmost one.
+// under when it is not in a column of its own.
 search_jump :: proc(host: ^Window, item: Search_Item) {
 	search_select(&host.tree, item)
-	if host.tree.active == 0 {_ = tree_prepend(&host.tree)}
 }
 
 search_select :: proc(tree: ^Tree, item: Search_Item) {
 	parent_row := 0
 	switch item.source {
+	case .Favorite:
+		_ = favorites_open_path(tree, tree.favorites[item.row])
+		return
 	case .Main:
 		_ = tree_select(tree, item.column, item.row, enter = false)
 		return

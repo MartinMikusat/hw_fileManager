@@ -32,12 +32,11 @@ view_preview_area :: proc(rect: draw.Rect) -> draw.Rect {
 }
 
 // view_preview_rect is the top-origin area the preview covers: everything left of
-// the active column's grandparent, so both ancestor levels stay visible beside it;
-// in the portrait layout only the parent stays, and the grandparent is dropped.
-// full spans the window, hiding the tree.
+// the active column's parent, which stays visible beside it. The favorites list
+// uses the same area. full spans the window, hiding the tree.
 view_preview_rect :: proc(tree: ^Tree, metrics: View_Metrics, full := false) -> (draw.Rect, bool) {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return {}, false}
-	keep := &tree.columns[max(tree.active-(view_preview_stacked(tree, metrics) ? 1 : 2), 0)]
+	keep := &tree.columns[tree_first_visible(tree)]
 	left := f32(0)
 	right := full ? metrics.width : keep.x-column_pad-1
 	top := chrome_height

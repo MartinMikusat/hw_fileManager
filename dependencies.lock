@@ -17,7 +17,7 @@
       "name": "hw_odin_ui_components",
       "path": "../odin_libraries/hw_odin_ui_components",
       "url": "https://github.com/MartinMikusat/hw_odin_ui_components.git",
-      "revision": "678179ea44b0ae06fc15f8a4744a01648ff4f11f"
+      "revision": "7500d9602e8001259c57585dc2acdcc824788aa2"
     },
     {
       "name": "hw_odin_diagnostics",

@@ -1085,15 +1085,17 @@ view_draw :: proc(
 	state: View_State,
 ) {
 	view_draw_chrome(tree, list, text, metrics, state.hot)
-	for index in 0 ..< max(len(tree.columns)-1, 0) {
+	first := tree_first_visible(tree)
+	for index in first ..< max(len(tree.columns)-1, 0) {
 		view_draw_connector(tree, list, index, metrics)
 		view_draw_context_connectors(tree, list, index, metrics)
 	}
-	for index in 0 ..< len(tree.columns) {
+	for index in first ..< len(tree.columns) {
 		view_draw_column(tree, list, text, index, metrics, state)
 		view_draw_trail(tree, list, text, index, metrics, state)
 	}
 	if state.preview_shown {view_draw_preview(tree, list, text, state.preview_rect, state.preview, metrics)}
+	if tree.favorites_shown {view_draw_favorites(tree, list, text, metrics, state)}
 	view_draw_bar(tree, list, text, metrics, state)
 	view_draw_gather(tree, list, text, metrics, state)
 	view_draw_sort_menu(tree, list, text, metrics, state)

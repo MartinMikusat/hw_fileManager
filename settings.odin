@@ -30,6 +30,8 @@ Settings :: struct {
 	letter_spacing: int,
 	// Sort token, e.g. "name" or "modified-desc"; empty is name A-Z.
 	sort: string,
+	// Folders kept in the favorites list, owned.
+	favorites: []string,
 }
 
 Window_Frame :: struct {
@@ -55,6 +57,7 @@ Settings_Document :: struct {
 	line_height:   int `json:"line_height"`,
 	letter_spacing: int `json:"letter_spacing"`,
 	sort:          string `json:"sort"`,
+	favorites:     []string `json:"favorites"`,
 }
 
 settings_defaults :: proc() -> Settings {
@@ -159,6 +162,10 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 		delete(settings.sort)
 		settings.sort = document.sort
 	}
+	if len(document.favorites) > 0 {
+		delete(settings.favorites)
+		settings.favorites = document.favorites
+	}
 	devlog.succeeded(devlog.global(), site)
 	return true
 }
@@ -184,6 +191,7 @@ settings_save :: proc(path: string, settings: Settings) -> bool {
 		line_height = settings.line_height == 0 ? 0 : settings_line_height_clamped(settings.line_height),
 		letter_spacing = settings_letter_spacing_clamped(settings.letter_spacing),
 		sort = settings.sort,
+		favorites = settings.favorites,
 	}
 	data, marshal_error := json.marshal(document, allocator = context.temp_allocator)
 	if marshal_error != nil {

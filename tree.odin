@@ -4,6 +4,7 @@ import "core:mem"
 import "core:path/filepath"
 import "core:strings"
 import devlog "devlog:."
+import draw "ui_framework:draw"
 
 Column :: struct {
 	dir:      string,
@@ -43,6 +44,12 @@ Tree :: struct {
 	row_height: f32,
 	line_ratio: f32,
 	sort:       Sort,
+	// favorites is borrowed from the settings each frame. The list takes the preview's
+	// place while favorites_open and no preview is shown (favorites_shown, in favorites_rect).
+	favorites:       []string,
+	favorites_open:  bool,
+	favorites_shown: bool,
+	favorites_rect:  draw.Rect,
 	allocator:  mem.Allocator,
 }
 
@@ -118,15 +125,8 @@ tree_truncate :: proc(tree: ^Tree, length: int) {
 }
 
 // tree_open shows the starting directory as a selected entry inside its parent
-// column, so the cascade and its connector are visible on the first frame;
-// grandparent adds the parent's own parent in front.
-tree_open :: proc(tree: ^Tree, directory: string, grandparent := false) -> bool {
-	if !tree_open_columns(tree, directory) {return false}
-	if grandparent {_ = tree_prepend(tree)}
-	return true
-}
-
-tree_open_columns :: proc(tree: ^Tree, directory: string) -> bool {
+// column, so the cascade and its connector are visible on the first frame.
+tree_open :: proc(tree: ^Tree, directory: string) -> bool {
 	tree_truncate(tree, 0)
 	tree.pan_snap = true
 	parent := filepath.dir(directory)
@@ -356,8 +356,15 @@ tree_root_directory :: proc(tree: ^Tree) -> string {
 	return tree.columns[0].dir
 }
 
+// tree_first_visible is the leftmost column drawn: the active column's parent.
+// The columns before it stay loaded but give their space to the preview.
+tree_first_visible :: proc(tree: ^Tree) -> int {
+	return max(tree.active-1, 0)
+}
+
 tree_column_at :: proc(tree: ^Tree, x: f32) -> int {
-	for column, index in tree.columns {
+	for index in tree_first_visible(tree) ..< len(tree.columns) {
+		column := &tree.columns[index]
 		if x >= column.x-column_pad && x < column.x+column.width {return index}
 	}
 	return -1

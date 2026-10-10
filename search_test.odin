@@ -76,7 +76,7 @@ search_jumps_into_a_listed_sibling_folder :: proc(t: ^testing.T) {
 }
 
 @(test)
-search_jump_into_the_leftmost_column_keeps_its_parent_visible :: proc(t: ^testing.T) {
+search_jump_into_the_leftmost_column_selects_the_match :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
@@ -90,9 +90,8 @@ search_jump_into_the_leftmost_column_keeps_its_parent_visible :: proc(t: ^testin
 	search_layout(&host)
 	search_commit(&host)
 
-	testing.expect_value(t, host.tree.active, 1)
-	testing.expect(t, strings.has_suffix(host.tree.columns[1].dir, "hw_fileManager-tree-test"))
-	selected := host.tree.columns[1].entries[host.tree.columns[1].selected]
+	testing.expect_value(t, host.tree.active, 0)
+	selected := host.tree.columns[0].entries[host.tree.columns[0].selected]
 	testing.expect_value(t, selected.name, "beta")
 }
 

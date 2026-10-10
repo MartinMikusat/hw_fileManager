@@ -246,16 +246,16 @@ tree_collapse_at_the_root_column_adds_its_parent :: proc(t: ^testing.T) {
 }
 
 @(test)
-tree_select_previews_two_levels_and_open_adds_a_grandparent :: proc(t: ^testing.T) {
+tree_select_previews_two_levels :: proc(t: ^testing.T) {
 	tree_fixture_create(t)
 	defer tree_fixture_destroy()
 
 	tree: Tree
 	tree_init(&tree)
 	defer tree_destroy(&tree)
-	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT, grandparent = true))
-	// [/, /tmp, root, alpha]: a grandparent in front, the first folder previewed behind.
-	testing.expect_value(t, tree.active, 2)
-	testing.expect_value(t, len(tree.columns), 4)
-	testing.expect(t, strings.has_suffix(tree.columns[3].dir, "/alpha"))
+	testing.expect(t, tree_open(&tree, TREE_FIXTURE_ROOT))
+	// [/tmp, root, alpha]: the first folder is previewed behind the opened one.
+	testing.expect_value(t, tree.active, 1)
+	testing.expect_value(t, len(tree.columns), 3)
+	testing.expect(t, strings.has_suffix(tree.columns[2].dir, "/alpha"))
 }

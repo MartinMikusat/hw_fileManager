@@ -45,6 +45,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	settings_open := false
 	shift := false
 	sort_menu := false
+	favorites := false
 	safe_mode := false
 	select_name := ""
 	editing := false
@@ -87,6 +88,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			edit_anchor = parsed
 		case argument == "--settings":
 			settings_open = true
+		case argument == "--favorites":
+			favorites = true
 		case argument == "--sort-menu":
 			sort_menu = true
 		case argument == "--safe":
@@ -139,7 +142,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	if font_size != 0 {settings.font_size = settings_font_size_clamped(font_size)}
 	tree_set_line_ratio(&tree, settings_line_ratio(settings))
 	_ = tree_set_font_size(&tree, f32(settings.font_size))
-	if !tree_open(&tree, directory, grandparent = true) {return false}
+	if !tree_open(&tree, directory) {return false}
 	if len(select_name) > 0 && !tree_select_name(&tree, tree.active, select_name) {return false}
 	gather_paths: [dynamic]string
 	defer gather_destroy(&gather_paths)
@@ -182,6 +185,10 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			text_input.set_selection(&text_edit.state, textedit_text(&text_edit), edit_anchor >= 0 ? edit_anchor : edit_caret, edit_caret)
 		}
 		preview_rect, preview_shown := view_preview_rect(&tree, metrics, editing)
+		tree.favorites = settings.favorites
+		tree.favorites_open = favorites
+		tree.favorites_rect = preview_rect
+		tree.favorites_shown = favorites && preview_shown && preview.kind == .None && !safe_mode
 		view_draw(&tree, &list, &text, metrics, View_State{
 			preview = preview_view_make(&preview, &renderer, scale, syntax_theme(syntax_theme_index(settings.syntax_theme)), &text_edit),
 			preview_rect = preview_rect,

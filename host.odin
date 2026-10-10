@@ -592,8 +592,8 @@ host_open_path :: proc(window: ^Window, path: string) -> bool {
 	if error != nil {return false}
 	is_dir := info.type == .Directory || (info.type == .Symlink && os.is_dir(path))
 	os.file_info_delete(info, context.temp_allocator)
-	if is_dir {return tree_open(&window.tree, path, grandparent = true)}
-	if !tree_open(&window.tree, filepath.dir(path), grandparent = true) {return false}
+	if is_dir {return tree_open(&window.tree, path)}
+	if !tree_open(&window.tree, filepath.dir(path)) {return false}
 	return tree_select_name(&window.tree, window.tree.active, filepath.base(path))
 }
 
@@ -666,8 +666,8 @@ host_reap_doomed :: proc() {
 }
 
 host_open_home :: proc(window: ^Window) -> bool {
-	if !tree_open(&window.tree, home_directory(), grandparent = true) {
-		if !tree_open(&window.tree, "/", grandparent = true) {
+	if !tree_open(&window.tree, home_directory()) {
+		if !tree_open(&window.tree, "/") {
 			fmt.eprintln("[hw_fileManager] no readable starting directory")
 			host_failure(FAIL_START_DIRECTORY, .Critical)
 			return false
@@ -682,7 +682,7 @@ host_open_home :: proc(window: ^Window) -> bool {
 host_restore_place :: proc(window: ^Window) -> bool {
 	place := app.settings.place
 	if len(place) == 0 || !path_taken(place) {return false}
-	if !tree_open(&window.tree, filepath.dir(place), grandparent = true) {return false}
+	if !tree_open(&window.tree, filepath.dir(place)) {return false}
 	_ = tree_select_name(&window.tree, window.tree.active, filepath.base(place))
 	return true
 }
@@ -845,6 +845,9 @@ host_render :: proc(window: ^Window) {
 		window.preview_rect, window.preview_shown = view_preview_rect(&window.tree, metrics, true)
 	}
 	window.preview_shown = window.preview_shown && window.preview.kind != .None && !app.safe_mode
+	favorites_sync(window)
+	window.tree.favorites_rect = window.preview_rect
+	window.tree.favorites_shown = window.tree.favorites_open && !window.preview_shown && window.preview_rect.w > 0 && !app.safe_mode
 	if !preview_text_shown(window) {window.preview.focused = false}
 	preview_scroll_to(window, window.preview.scroll)
 	preview_view := preview_view_make(&window.preview, &window.renderer, scale, syntax_theme(syntax_theme_index(app.settings.syntax_theme)), &window.text_edit)
@@ -1093,6 +1096,11 @@ host_mouse_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		}
 	}
 	if window.preview_shown && point.x >= window.preview_rect.x && point.x < window.preview_rect.x+window.preview_rect.w && point.y >= window.preview_rect.y && point.y < window.preview_rect.y+window.preview_rect.h {return}
+	if window.tree.favorites_shown && rect_contains(window.tree.favorites_rect, point) {
+		if row := favorites_row_at(&window.tree, point.y); row >= 0 {_ = favorites_open_path(&window.tree, window.tree.favorites[row])}
+		host_request_frames(window, 2)
+		return
+	}
 	if window.edit_mode != .None {
 		edit_commit(window)
 		host_request_frames(window, 2)
@@ -1211,6 +1219,7 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 	shift := .Shift in event->modifierFlags()
 	window.shift_down = shift
 	key := uint(event->keyCode())
+	favorites_sync(window)
 	// Cmd+N is app-level, so it works with a modal or the sort menu open too.
 	if command && key == 45 {
 		host_new_window(window)
@@ -1316,6 +1325,8 @@ host_key_down :: proc "c" (self: NS.id, cmd: NS.SEL, event: ^NS.Event) {
 		if window.input_mode == .Cd {cd_complete(window)}
 	case key == 45 && window.input_mode == .Search:
 		if window.search_committed {search_next(window, shift ? -1 : 1)}
+	case key == 3 && window.input_mode == .None && !command && !control && !option:
+		if shift {favorites_toggle_current(window)} else {favorites_toggle_list(window)}
 	case action_is_key(key):
 		if window.input_mode == .None && !option {
 			if kind, ok := action_key_code(key); ok {action_perform(window, kind, shift)}

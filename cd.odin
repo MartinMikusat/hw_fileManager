@@ -68,7 +68,7 @@ cd_remember :: proc(zoxide, path: string) {
 
 // cd_enter reopens the cascade at path and remembers it.
 cd_enter :: proc(host: ^Window, path: string) -> bool {
-	if !tree_open(&host.tree, path, grandparent = true) {return false}
+	if !tree_open(&host.tree, path) {return false}
 	cd_remember(app.zoxide, path)
 	return true
 }
