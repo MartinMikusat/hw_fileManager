@@ -2,9 +2,11 @@ package file_manager
 
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
+import "core:unicode/utf8"
 
 // favorites is the list of kept folders ("f" on a folder keeps or drops it, on a
 // file or with shift it shows or hides the list). It takes the preview's place, so
@@ -12,6 +14,19 @@ import draw "ui_framework:draw"
 
 favorites_sync :: proc(window: ^Window) {
 	window.tree.favorites = app.settings.favorites
+}
+
+// favorites_sort orders the list by folder name, ignoring case.
+favorites_sort :: proc(favorites: []string) {
+	slice.sort_by(favorites, proc(a, b: string) -> bool {
+		name_a, name_b := filepath.base(a), filepath.base(b)
+		for index in 0 ..< min(len(name_a), len(name_b)) {
+			left, right := fold_ascii(name_a[index]), fold_ascii(name_b[index])
+			if left != right {return left < right}
+		}
+		if len(name_a) != len(name_b) {return len(name_a) < len(name_b)}
+		return a < b
+	})
 }
 
 favorites_row_top :: proc(tree: ^Tree, row: int) -> f32 {
@@ -60,6 +75,7 @@ favorites_toggle_current :: proc(window: ^Window) {
 	}
 	if !found {append(&kept, strings.clone(path))}
 	delete(current)
+	favorites_sort(kept[:])
 	app.settings.favorites = kept[:]
 	window.tree.favorites_open = true
 	favorites_sync(window)
@@ -82,7 +98,8 @@ view_draw_favorites :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Conte
 		name := filepath.base(path)
 		color := COLOR_TEXT
 		if path == current {
-			draw.solid(list, view_rect_draw({rect.x+column_pad, top, rect.w-2*column_pad, tree.row_height}, metrics), COLOR_SELECTED_ROW)
+			width := min(f32(utf8.rune_count_in_string(name)+2)*metrics.char_advance, rect.w-2*column_pad)
+			draw.solid(list, view_rect_draw({rect.x+2*column_pad-metrics.char_advance, top, width, tree.row_height}, metrics), COLOR_SELECTED_ROW)
 			color = COLOR_SELECTED
 		} else if searching && name_contains_fold(name, state.input) {
 			color = COLOR_SEARCH

@@ -165,6 +165,7 @@ settings_load :: proc(path: string, settings: ^Settings) -> bool {
 	if len(document.favorites) > 0 {
 		delete(settings.favorites)
 		settings.favorites = document.favorites
+		favorites_sort(settings.favorites)
 	}
 	devlog.succeeded(devlog.global(), site)
 	return true
