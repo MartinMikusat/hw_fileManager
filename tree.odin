@@ -45,7 +45,7 @@ Tree :: struct {
 	line_ratio: f32,
 	sort:       Sort,
 	// favorites is borrowed from the settings each frame. The list takes the preview's
-	// place while favorites_open and no preview is shown (favorites_shown, in favorites_rect).
+	// place while favorites_open (the default) and no preview is shown (favorites_shown, in favorites_rect).
 	favorites:       []string,
 	favorites_open:  bool,
 	favorites_shown: bool,
@@ -63,6 +63,7 @@ tree_init :: proc(tree: ^Tree, allocator := context.allocator) {
 	tree.row_height = row_height_for(DEFAULT_FONT_SIZE, tree.line_ratio)
 	theme_scale_set(DEFAULT_FONT_SIZE)
 	tree.sort = SORT_DEFAULT
+	tree.favorites_open = true
 }
 
 tree_set_font_size :: proc(tree: ^Tree, font_size: f32) -> bool {

@@ -45,7 +45,7 @@ run_offscreen :: proc(arguments: []string) -> bool {
 	settings_open := false
 	shift := false
 	sort_menu := false
-	favorites := false
+	favorites := true
 	safe_mode := false
 	select_name := ""
 	editing := false
@@ -88,8 +88,8 @@ run_offscreen :: proc(arguments: []string) -> bool {
 			edit_anchor = parsed
 		case argument == "--settings":
 			settings_open = true
-		case argument == "--favorites":
-			favorites = true
+		case argument == "--no-favorites":
+			favorites = false
 		case argument == "--sort-menu":
 			sort_menu = true
 		case argument == "--safe":
