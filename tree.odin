@@ -50,6 +50,8 @@ Tree :: struct {
 	favorites_open:  bool,
 	favorites_shown: bool,
 	favorites_rect:  draw.Rect,
+	// The favorite a search jump opened, while the cascade is still on it.
+	search_favorite: Maybe(int),
 	allocator:  mem.Allocator,
 }
 

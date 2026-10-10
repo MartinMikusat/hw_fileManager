@@ -102,9 +102,15 @@ search_item_entry :: proc(tree: ^Tree, item: Search_Item) -> Entry {
 	return {}
 }
 
-// search_current is the index of the selected row among items, or -1.
+// search_current is the index of the favorite the search is on, else of the selected
+// row among items, or -1.
 search_current :: proc(tree: ^Tree, items: []Search_Item) -> int {
 	if tree.active < 0 || tree.active >= len(tree.columns) {return -1}
+	if row, ok := tree.search_favorite.?; ok && row < len(tree.favorites) && tree.columns[tree.active].dir == tree.favorites[row] {
+		for item, index in items {
+			if item.source == .Favorite && item.row == row {return index}
+		}
+	}
 	selected := tree.columns[tree.active].selected
 	for item, index in items {
 		if item.source == .Main && item.column == tree.active && item.row == selected {return index}
@@ -138,9 +144,10 @@ search_jump :: proc(host: ^Window, item: Search_Item) {
 
 search_select :: proc(tree: ^Tree, item: Search_Item) {
 	parent_row := 0
+	tree.search_favorite = nil
 	switch item.source {
 	case .Favorite:
-		_ = favorites_open_path(tree, tree.favorites[item.row])
+		if favorites_open_path(tree, tree.favorites[item.row]) {tree.search_favorite = item.row}
 		return
 	case .Main:
 		_ = tree_select(tree, item.column, item.row, enter = false)
@@ -178,15 +185,25 @@ search_step :: proc(host: ^Window, direction: int, inclusive: bool) {
 	}
 }
 
-// search_commit jumps to the first match from the selection once the query is
-// confirmed; while it is being typed the matches only highlight, as in vim
-// without incsearch.
+// search_commit jumps to the first matching favorite once the query is confirmed,
+// else to the first match from the selection; while it is being typed the matches
+// only highlight, as in vim without incsearch.
 search_commit :: proc(host: ^Window) {
+	query := input_text(host)
+	if len(query) == 0 {return}
+	view_top, view_bottom := host_search_bounds(host)
+	items := search_items(&host.tree, view_top, view_bottom)
+	current := search_current(&host.tree, items)
+	for item, index in items {
+		if item.source != .Favorite || !search_matches(search_item_entry(&host.tree, item), query) {continue}
+		if index != current {search_jump(host, item)}
+		return
+	}
 	search_step(host, 1, true)
 }
 
 search_refresh :: proc(host: ^Window) {
-	search_step(host, 1, true)
+	search_commit(host)
 }
 
 search_next :: proc(host: ^Window, delta: int) {

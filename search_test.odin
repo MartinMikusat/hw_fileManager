@@ -37,6 +37,37 @@ search_commit_jumps_to_the_first_match :: proc(t: ^testing.T) {
 }
 
 @(test)
+search_commit_jumps_to_a_matching_favorite_before_the_tree :: proc(t: ^testing.T) {
+	tree_fixture_create(t)
+	defer tree_fixture_destroy()
+
+	host: Window
+	tree_init(&host.tree)
+	defer tree_destroy(&host.tree)
+	defer input_destroy(&host)
+	testing.expect(t, tree_open(&host.tree, TREE_FIXTURE_ROOT+"/alpha"))
+	// Entry paths may be canonical (/private/tmp), so take beta's from the tree.
+	favorites: []string
+	for entry in host.tree.columns[0].entries {
+		if entry.name == "beta" {favorites = []string{entry.path}}
+	}
+	host.tree.favorites = favorites
+	host.tree.favorites_shown = true
+	host.input_mode = .Search
+	append_query(&host, "beta")
+	search_layout(&host)
+	search_commit(&host)
+
+	testing.expect(t, strings.has_suffix(host.tree.columns[host.tree.active].dir, "/beta"))
+	testing.expect_value(t, host.tree.search_favorite, 0)
+
+	search_layout(&host)
+	search_next(&host, 1)
+	testing.expect_value(t, host.tree.columns[host.tree.active].entries[host.tree.columns[host.tree.active].selected].name, "beta")
+	testing.expect_value(t, host.tree.search_favorite, nil)
+}
+
+@(test)
 input_history_walks_submitted_queries :: proc(t: ^testing.T) {
 	host: Window
 	defer input_destroy(&host)
