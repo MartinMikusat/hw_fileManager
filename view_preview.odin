@@ -55,7 +55,9 @@ view_draw_preview :: proc(tree: ^Tree, list: ^draw.List, text: ^coretext.Context
 	switch preview.kind {
 	case .None:
 	case .Cloud:
-		view_draw_text(text, list, "In iCloud, not downloaded", area.x, area.y, tree.row_height, tree.font_size, COLOR_DIM, metrics.height, area.w)
+		view_draw_text(text, list, "Downloading from iCloud…", area.x, area.y, tree.row_height, tree.font_size, COLOR_DIM, metrics.height, area.w)
+	case .Cloud_Failed:
+		view_draw_text(text, list, "iCloud download failed", area.x, area.y, tree.row_height, tree.font_size, COLOR_DIM, metrics.height, area.w)
 	case .Text:
 		if preview.edit != nil {
 			textedit_draw(tree, list, text, area, preview.edit, preview.scroll, preview.theme, metrics)

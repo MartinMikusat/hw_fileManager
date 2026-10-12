@@ -66,8 +66,9 @@ Preview_Kind :: enum {
 	None,
 	Text,
 	Image,
-	// A cloud file that is not on disk; reading it would download it.
+	// A cloud file that is downloading; the preview loads when it lands on disk.
 	Cloud,
+	Cloud_Failed,
 }
 
 // SF_DATALESS marks a File Provider (iCloud) file whose content is not downloaded.
@@ -202,15 +203,15 @@ preview_make_texture :: proc(device: ^MTL.Device, pixels: []u8, width, height: i
 }
 
 // preview_update follows the selection: a selected image or text file is loaded as soon as
-// it is selected and kept until the selection or the file changes. Cloud files are never
-// read, so moving through them costs only a metadata check.
+// it is selected and kept until the selection or the file changes. A cloud file downloads in
+// the background and loads when it has landed.
 preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 	entry, selected := tree_selected_entry(tree)
 	if !selected || entry.is_dir {
 		if len(preview.path) > 0 {preview_clear(preview)}
 		return
 	}
-	if preview.path == entry.path && preview.modified == entry.modified {return}
+	if preview.path == entry.path && preview.modified == entry.modified && !(preview.kind == .Cloud && cloud_settled(entry.path)) {return}
 	// A reload of the same file (it changed, or editing ended) keeps the view where it was.
 	reloading := preview.path == entry.path
 	scroll, focused := preview.scroll, preview.focused
@@ -220,11 +221,16 @@ preview_update :: proc(preview: ^Preview, tree: ^Tree, device: ^MTL.Device) {
 	defer devlog.sample_since(devlog.global(), {feature = "files", operation = "preview"}, started)
 	preview.path = strings.clone(entry.path)
 	preview.modified = entry.modified
+	site := devlog.Site{feature = "files", operation = "preview"}
 	if path_dataless(entry.path) {
-		preview.kind = .Cloud
+		if cloud_poll(entry.path) == .Failed {
+			preview.kind = .Cloud_Failed
+			devlog.failed(devlog.global(), site, {reason = "iCloud file could not be downloaded", severity = .Warning}, {file_id = entry.name})
+		} else {
+			preview.kind = .Cloud
+		}
 		return
 	}
-	site := devlog.Site{feature = "files", operation = "preview"}
 	if preview_is_image_name(entry.name) {
 		info, stat_error := os.stat(entry.path, context.temp_allocator)
 		if stat_error != nil || info.size > PREVIEW_IMAGE_FILE_MAX {return}

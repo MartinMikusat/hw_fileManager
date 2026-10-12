@@ -104,6 +104,9 @@ Window :: struct {
 	preview_rect:   draw.Rect,
 	preview_shown:  bool,
 	preview_cut_off: bool,
+	// Enter was pressed on a cloud file that is still downloading; it repeats once the
+	// download has landed, and lapses when the selection moves on.
+	enter_path: string,
 	hot_action:     Action_Kind,
 	hot_action_hot: bool,
 	shift_down:     bool,
@@ -831,6 +834,13 @@ host_render :: proc(window: ^Window) {
 	input_sel_start, input_sel_end := 0, 0
 	if input_editing(window) {input_sel_start, input_sel_end = text_input.selection_bounds(&window.text_state, window.input_value)}
 	if !app.safe_mode && !window.text_edit.active {preview_update(&window.preview, &window.tree, app.device)}
+	if window.preview.kind == .Cloud {host_request_frames(window, 1)}
+	if len(window.enter_path) > 0 && window.preview.kind != .Cloud {
+		waited := window.enter_path == window.preview.path
+		delete(window.enter_path)
+		window.enter_path = ""
+		if waited {host_enter(window)}
+	}
 	frame_dt := f32(time.duration_seconds(time.tick_since(window.frame_tick)))
 	if !window.frame_animated {frame_dt = 1.0/60}
 	window.frame_tick = time.tick_now()
@@ -1415,7 +1425,10 @@ host_place_new_window :: proc(window: ^Window, cascade: int) {
 // file opens in its default app.
 host_enter :: proc(window: ^Window) {
 	if entry, ok := tree_selected_entry(&window.tree); ok && !entry.is_dir {
-		if window.preview.kind == .Text {
+		if window.preview.kind == .Cloud {
+			delete(window.enter_path)
+			window.enter_path = strings.clone(entry.path)
+		} else if window.preview.kind == .Text {
 			if !preview_focus_begin(window) {textedit_begin(window)}
 		} else {
 			action_open(window)
