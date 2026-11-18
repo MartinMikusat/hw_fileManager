@@ -17,7 +17,7 @@ kind. Source lives at the repository root (`package file_manager`).
   position itself. Do not add a layout library.
 - `references/*.jpg` is the binding visual spec: match it 1:1 (palette, type
   weight, selection treatment, connector geometry, alignment), deriving the
-  theme constants from the images. The app-authoring defaults yield to it.
+  theme constants from the images.
 - The operation journal (`hw_odin_devlog`) is the dev error and debug path.
   `dev.sh` writes `.dev-logs/app/devlog.jsonl`; read it first when a run misbehaves.
   Record failures once at their root cause, and never put credentials, payloads or
